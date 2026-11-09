@@ -1,6 +1,7 @@
 /* In-memory stand-in for the Supabase REST helper (api/_lib.js `db`), for local tests without a project. */
+import { randomUUID } from 'node:crypto';
 export function mockDb() {
-  const T = { rooms: [], sections: [], changes: [], messages: [], discussions: [], votes: [] };
+  const T = { rooms: [], sections: [], changes: [], messages: [], discussions: [], votes: [], reactions: [], comments: [] };
   const parse = (q) => {
     const f = [], o = {};
     for (const part of String(q || '').split('&').filter(Boolean)) {
@@ -22,7 +23,7 @@ export function mockDb() {
     },
     async insert(table, rows) {
       const now = Date.now();
-      const out = rows.map((r, i) => ({ created_at: new Date(now + i).toISOString(), ...(table === 'rooms' ? { agent: { state: 'idle' }, calls: 0, bots_on: false } : {}), ...clone(r) }));
+      const out = rows.map((r, i) => ({ created_at: new Date(now + i).toISOString(), ...(['messages', 'comments'].includes(table) ? { id: randomUUID() } : {}), ...(table === 'rooms' ? { agent: { state: 'idle' }, calls: 0, bots_on: false } : {}), ...clone(r) }));
       if (table === 'votes') for (const r of out) if (T.votes.some((v) => v.discussion_id === r.discussion_id && v.user_id === r.user_id)) throw new Error('duplicate vote');
       T[table].push(...out); return clone(out);
     },

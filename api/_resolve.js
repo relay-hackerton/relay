@@ -1,6 +1,8 @@
 /* Discussion conclusion: apply the winning option to the section and the decision log. No Claude call. */
 import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, L } from './_lib.js';
 import { NO_DECISION_PREFIX } from './_seed.js';
+import { RESPOND_TOOL, systemPrompt, callClaude as realClaude } from './_prompt.js';
+import { validate } from './_agent.js';
 
 const secLabel = (s) => `${s.num}. ${s.title}`;
 
@@ -43,11 +45,26 @@ export async function runResolve(input, deps = {}) {
     let before = null, after = null, main = null;
     if (disc.section_id) {
       await setAgentSection(roomId, lock, 'agent', 'Agent', disc.section_id, d);
-      main = await writeSection(d, roomId, disc.section_id, (sec) => {
-        const idx = Math.min(Math.max(0, disc.para_index ?? 0), sec.paras.length - 1);
-        before = sec.paras[idx]; after = pick.text;
-        return sec.paras.map((p, i) => (i === idx ? pick.text : p));
-      });
+      /* an option without ready text (a person opened the discussion): the model writes the section to match the conclusion */
+      let drafted = null;
+      if (!pick.text) {
+        try {
+          const sections = await d.select('sections', `room_id=${d.eq(roomId)}&order=num.asc`);
+          const ask = `The team concluded discussion #${disc.n} "${disc.title_en || disc.title}" (${disc.question || ''}) with option ${pick.id}: ${pick.label_en || pick.label}${pick.desc ? ` (${pick.desc})` : ''}. Apply this decision to section ${disc.section_id} only (action "edit"). Keep everything else as it is.`;
+          const out = await (deps.callClaude || realClaude)({ system: systemPrompt({ sections, recent: [], openDiscs: [], userName: 'the team', lang }), messages: [{ role: 'user', content: ask }], tool: RESPOND_TOOL, timeoutMs: 35000 });
+          if (!validate(out, sections) && out.action === 'edit' && out.sectionId === disc.section_id) drafted = out.paras;
+        } catch (e) { console.error('resolve draft failed', e); }
+      }
+      if (pick.text || drafted) {
+        main = await writeSection(d, roomId, disc.section_id, (sec) => {
+          if (drafted) { const ch = sec.paras.filter((p) => !drafted.includes(p)); before = ch.join('\n') || null; after = drafted.filter((p) => !sec.paras.includes(p)).join('\n') || drafted.join('\n'); return drafted; }
+          const idx = Math.min(Math.max(0, disc.para_index ?? 0), sec.paras.length - 1);
+          before = sec.paras[idx]; after = pick.text;
+          return sec.paras.map((p, i) => (i === idx ? pick.text : p));
+        });
+      }
+    }
+    if (main) {
       await d.insert('changes', [{ id: main.changeId, room_id: roomId, section_id: disc.section_id, kind: 'discussion', by_id: 'agent', by_name: 'Agent', discussion_id: disc.id,
         summary: L(lang, `Applied discussion #${disc.n} result (option ${pick.id} ${pick.label}) as is`, `토론 #${disc.n} 결론(${pick.id}안 ${pick.label})을 그대로 반영`),
         why: L(lang, `${voters.join(' · ') || userName} chose option ${pick.id}`, `${voters.join(' · ') || userName}님이 ${pick.id}안 선택`),

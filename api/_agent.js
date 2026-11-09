@@ -14,8 +14,15 @@ const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 export function validate(out, sections) {
   if (!out || typeof out !== 'object') return 'no output';
-  if (!['edit', 'clarify', 'none'].includes(out.action)) return 'action must be "edit", "clarify" or "none"';
+  if (!['edit', 'clarify', 'none', 'discuss'].includes(out.action)) return 'action must be "edit", "clarify", "none" or "discuss"';
   if (typeof out.reply !== 'string' || !out.reply.trim()) return '"reply" is empty';
+  if (out.action === 'discuss') {
+    const o = out.discussion && out.discussion.options;
+    if (!o || !Array.isArray(o) || o.length < 2 || !out.discussion.title) return 'discuss needs a discussion with a title and at least 2 options';
+    if (out.sectionId && !sections.some((s) => s.id === out.sectionId)) return `sectionId "${out.sectionId}" does not exist`;
+    if (o.some((x) => x && x.text && hasHangul(x.text))) return 'discussion option "text" must be English';
+    return null;
+  }
   if (out.action !== 'edit') return null;
   const sec = sections.find((s) => s.id === out.sectionId);
   if (!sec) return `sectionId "${out.sectionId}" does not exist; use one of ${sections.map((s) => s.id).join(', ')}`;
@@ -113,6 +120,13 @@ export async function runAgent(input, deps = {}) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const ctx = await loadContext(d, roomId, userId);
       const out = await askClaude(dz, ctx, { ...input, userName, lang, model }, started);
+      if (out.action === 'discuss') {
+        const open = out.sectionId && ctx.openDiscs.find((x) => x.section_id === out.sectionId);
+        const compose = open ? null : { sectionId: out.sectionId || null, title: out.discussion.title, titleEn: out.discussion.titleEn || out.discussion.title, question: out.discussion.question || '',
+          options: out.discussion.options.slice(0, 3).map((o, i) => ({ id: 'ABC'[i], label: o.label, labelEn: o.labelEn || o.label, desc: o.desc || '', text: o.text || '' })) };
+        await sayAgent(d, who, open ? L(lang, `Discussion #${open.n} is already open on that section.`, `그 섹션에는 이미 토론 #${open.n}이 열려 있어요.`) : out.reply.trim(), { action: 'discuss', model: modelTag, ...(compose ? { compose } : { discussion_id: open.id }) });
+        return { ok: true, action: 'discuss' };
+      }
       const sec = out.action === 'edit' && ctx.sections.find((s) => s.id === out.sectionId);
       if (!sec || sameList(sec.paras, out.paras)) {
         await sayAgent(d, who, out.reply.trim(), { action: out.action === 'edit' ? 'none' : out.action, model: modelTag, ...(out.invalid ? { invalid: out.invalid } : {}) });
@@ -120,7 +134,8 @@ export async function runAgent(input, deps = {}) {
       }
       const frozen = ctx.openDiscs.find((x) => x.section_id === sec.id);
       if (frozen) {
-        await sayAgent(d, who, L(lang, `${secLabel(sec)} has discussion #${frozen.n} open, so I left it as is. Your request counts as input; I'll apply whatever the team concludes.`, `${secLabel(sec)}은 토론 #${frozen.n}이 진행 중이라 그대로 뒀어요. 요청은 의견으로 두고, 결론이 나면 그대로 반영할게요.`), { action: 'none', frozen: frozen.id });
+        try { await d.insert('comments', [{ discussion_id: frozen.id, room_id: roomId, user_id: userId, user_name: userName, text: String(input.text).slice(0, 400) }]); } catch (e) { console.error('comment failed', e); }
+        await sayAgent(d, who, L(lang, `${secLabel(sec)} has discussion #${frozen.n} open, so I left it as is. Your request counts as input; I'll apply whatever the team concludes.`, `${secLabel(sec)}은 토론 #${frozen.n}이 진행 중이라 그대로 뒀어요. 요청은 의견으로 두고, 결론이 나면 그대로 반영할게요.`), { action: 'none', frozen: frozen.id, discussion_id: frozen.id });
         return { ok: true, action: 'none' };
       }
 

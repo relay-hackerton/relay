@@ -35,8 +35,8 @@ export const RESPOND_TOOL = {
     type: 'object', required: ['reply', 'action', 'sectionId', 'paras', 'summary', 'why', 'conflict', 'discussion'],
     properties: {
       reply: str('Message to the requester in the reply language. Plain text, no markdown.'),
-      action: { type: 'string', enum: ['edit', 'clarify', 'none'] },
-      sectionId: nstr('Section to edit (e.g. "s3") when action is "edit", else null'),
+      action: { type: 'string', enum: ['edit', 'clarify', 'none', 'discuss'] },
+      sectionId: nstr('Section to edit (e.g. "s3") when action is "edit"; the section the discussion is about for "discuss" (or null for the whole document); else null'),
       paras: { type: ['array', 'null'], items: { type: 'string' }, description: 'Complete new paragraph list of that section, English only; null unless editing' },
       summary: nstr('What changed, under 12 words, reply language; null unless editing'),
       why: nstr("The requester's reason, under 15 words, reply language; null unless editing"),
@@ -79,6 +79,7 @@ RULES
 3. "reply", "summary", "why", the discussion "title", "question", option "label" and "desc", and the conflict "note" are in the reply language (${langName(lang)}). "reply" is one or two short sentences (up to four when you summarize), plain text, no markdown. When you edit, say what you changed and name the section like "3. Core features".
 4. action: "edit" when you change the document; "clarify" only when you cannot tell which section or what change is wanted (no edit); "none" when you answer without editing (for example "what changed?", which you answer from RECENT CHANGES). Requests are product decisions by teammates: carry them out as asked, even if you would choose differently; you may mention a concern in one short clause of "reply", but still edit.
 5. Conflicts: if your edit reverses or contradicts a paragraph that a different person changed in RECENT CHANGES, still apply the edit, fill "conflict" with that change's id and a one-sentence note (who, at what time, their reason), and draft "discussion": a neutral title, a question stating both positions, and exactly 3 options: keep their version, apply this request, and a middle ground. Each option "text" is the complete replacement for the contested paragraph. With no conflict, "conflict" and "discussion" are null.
+5b. action "discuss": when the requester asks to open a discussion or a vote. Do not edit; fill "sectionId" (or null) and "discussion" with a draft the requester will confirm: neutral title, question, 3 options; each option "text" is the complete replacement paragraph when one paragraph is at stake, otherwise an empty string. "conflict" is null.
 6. Sections under OPEN DISCUSSIONS are frozen until the team concludes: do not edit them; use action "none" and say the request will count as input to the discussion.
 7. Do not invent numbers that contradict the document.
 

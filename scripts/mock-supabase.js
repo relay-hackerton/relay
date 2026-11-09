@@ -10,6 +10,7 @@
     maybeSingle() { this.q.single = true; return this; }
     then(res, rej) { return post('/mock/query', this.q).then(res, rej); }
     insert(row) { return post('/mock/insert', { table: this.q.table, rows: [].concat(row) }); }
+    delete() { const self = this; return { eq(k, v) { self.q.filters.push([k, v]); return this; }, then(res, rej) { return post('/mock/delete', self.q).then(res, rej); } }; }
     upsert(row, opt) { return post('/mock/upsert', { table: this.q.table, rows: [].concat(row), onConflict: opt && opt.onConflict }); }
   }
   class Channel {

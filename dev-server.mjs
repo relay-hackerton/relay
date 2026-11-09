@@ -53,6 +53,12 @@ async function mockRoute(req, res, url) {
     if (b.limit) rows = rows.slice(0, b.limit);
     return json(res, { data: b.single ? rows[0] || null : rows, error: null });
   }
+  if (url.pathname === '/mock/delete') {
+    const gone = m.T[b.table].filter((r) => b.filters.every(([k, v]) => String(r[k]) === String(v)));
+    m.T[b.table] = m.T[b.table].filter((r) => !gone.includes(r));
+    gone.forEach((row) => push(row.room_id, { table: b.table, eventType: 'DELETE', row }));
+    return json(res, { data: null, error: null });
+  }
   if (url.pathname === '/mock/insert') { const rows = await lib.db.insert(b.table, b.rows); return json(res, { data: rows, error: null }); }
   if (url.pathname === '/mock/upsert') {
     const keys = (b.onConflict || 'id').split(',');

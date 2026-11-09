@@ -156,3 +156,43 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ---------- 11/9 additions: reactions (👍) and discussion comments, written by the browser ----------
+create table if not exists reactions (
+  change_id   text not null references changes(id) on delete cascade,
+  room_id     text not null references rooms(id) on delete cascade,
+  user_id     text not null,
+  user_name   text not null,
+  created_at  timestamptz not null default now(),
+  primary key (change_id, user_id)
+);
+create table if not exists comments (
+  id             uuid primary key default gen_random_uuid(),
+  discussion_id  text not null references discussions(id) on delete cascade,
+  room_id        text not null references rooms(id) on delete cascade,
+  user_id        text not null,
+  user_name      text not null,
+  text           text not null,
+  created_at     timestamptz not null default now()
+);
+alter table reactions enable row level security;
+alter table comments  enable row level security;
+drop policy if exists read_all on reactions; create policy read_all on reactions for select using (true);
+drop policy if exists read_all on comments;  create policy read_all on comments  for select using (true);
+drop policy if exists like_in on reactions;
+create policy like_in on reactions for insert to anon, authenticated with check (user_id not like 'bot_%');
+drop policy if exists like_out on reactions;
+create policy like_out on reactions for delete to anon, authenticated using (user_id not like 'bot_%');
+drop policy if exists comment_in on comments;
+create policy comment_in on comments for insert to anon, authenticated
+  with check (user_id not like 'bot_%' and char_length(text) between 1 and 400);
+alter table reactions replica identity full;
+do $$
+declare t text;
+begin
+  foreach t in array array['reactions', 'comments'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;

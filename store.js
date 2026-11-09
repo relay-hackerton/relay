@@ -31,7 +31,7 @@ window.Store = (() => {
     buffering = true; buffer = [];
     if (channel) { await sb.removeChannel(channel); channel = null; }
     channel = sb.channel(`room:${id}`, { config: { presence: { key: user.userId } } });
-    const tables = { sections: 'sections', changes: 'changes', messages: 'messages', discussions: 'discussions', votes: 'votes', rooms: 'room' };
+    const tables = { sections: 'sections', changes: 'changes', messages: 'messages', discussions: 'discussions', votes: 'votes', reactions: 'reactions', comments: 'comments', rooms: 'room' };
     Object.entries(tables).forEach(([table, kind]) => {
       channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: table === 'rooms' ? `id=eq.${id}` : `room_id=eq.${id}` }, (p) => {
         const ev = { type: p.eventType, row: p.eventType === 'DELETE' ? p.old : p.new };
@@ -60,18 +60,21 @@ window.Store = (() => {
   async function snapshot() {
     const id = roomId;
     const q = (table) => sb.from(table).select('*').eq('room_id', id);
-    const [room, sections, changes, messages, discussions, votes] = await Promise.all([
+    const [room, sections, changes, messages, discussions, votes, reactions, comments] = await Promise.all([
       sb.from('rooms').select('*').eq('id', id).maybeSingle(),
       q('sections').order('num'),
       q('changes').order('created_at'),
       q('messages').order('created_at').limit(1000),
       q('discussions').order('n'),
       q('votes'),
+      q('reactions'),
+      q('comments').order('created_at'),
     ]);
     const err = [room, sections, changes, messages, discussions, votes].find((x) => x.error);
     if (err) throw new Error(err.error.message);
     if (!room.data) throw new Error('room_not_found');
-    return { room: room.data, sections: sections.data, changes: changes.data, messages: messages.data, discussions: discussions.data, votes: votes.data, presence: presenceList() };
+    return { room: room.data, sections: sections.data, changes: changes.data, messages: messages.data, discussions: discussions.data, votes: votes.data,
+      reactions: reactions.error ? [] : reactions.data, comments: comments.error ? [] : comments.data, presence: presenceList() };
   }
 
   /* coming back to a tab that was hidden for a while: catch up in case the socket slept */
@@ -116,6 +119,19 @@ window.Store = (() => {
   }
 
   const bot = ({ lang = 'en' } = {}) => api('bot', { roomId, lang });
+  /* a person opens a discussion (compose form) */
+  const discuss = (d, { lang = 'en' } = {}) => api('discuss', { roomId, userId: me.userId, userName: me.name, lang, ...d });
+  async function comment(discussionId, text) {
+    need();
+    const r = await sb.from('comments').insert({ discussion_id: discussionId, room_id: roomId, user_id: me.userId, user_name: me.name, text: String(text).slice(0, 400) });
+    return r.error ? { error: r.error.message } : { ok: true };
+  }
+  async function like(changeId, on) {
+    need();
+    const r = on ? await sb.from('reactions').insert({ change_id: changeId, room_id: roomId, user_id: me.userId, user_name: me.name })
+      : await sb.from('reactions').delete().eq('change_id', changeId).eq('user_id', me.userId);
+    return r.error ? { error: r.error.message } : { ok: true };
+  }
   /* a direct edit of one section; rev is the version I started from */
   const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, userId: me.userId, userName: me.name, sectionId, paras, rev, lang });
   const createRoom = async () => { const r = await api('room', {}); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
@@ -128,5 +144,5 @@ window.Store = (() => {
     lastTrack = key; channel.track(presence).catch(() => {});
   }
 
-  return { join, snapshot, on, say, vote, resolve, bot, edit, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId };
+  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId };
 })();

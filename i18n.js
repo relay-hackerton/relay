@@ -194,7 +194,7 @@ window.RelayI18N = (() => {
   Object.assign(EN, {
     land_tag: 'One agent, used by the whole team. Every change shows who made it and why.',
     land_name: 'Your name', land_name_ph: 'e.g. Alex', land_avatar: 'Avatar',
-    land_start: 'Start a room', land_join: 'Join room {id}', land_new: 'Start a new room instead',
+    land_start: 'Start a room', land_join: 'Join room {id}', land_join_btn: 'Join', land_new: 'Start a new room instead',
     land_hint_start: 'You get a fresh copy of the demo spec, with Minsu and Jieun’s earlier edits. Invite others with a link.',
     land_hint_join: 'You were invited to room {id}. Everyone in it sees the same document live.',
     land_err_name: 'Enter your name', land_err_conf: 'The server is not configured yet (Supabase keys missing).',
@@ -216,6 +216,13 @@ window.RelayI18N = (() => {
     sess_empty: 'No messages in this session yet.', ask_prefix: 'About {sec}: ', opened_by_agent: 'opened by the agent',
     disc_empty_live: 'When two people’s edits disagree, the agent opens a discussion here and waits for the team to decide.',
     offline: 'Connection lost · reconnecting…', model_label: 'Model', model_title: 'Which model the agent uses for your requests',
+    guide_steps_live: [
+      ['Watch the document change', 'Click “Bring in a teammate” in your session. Jieun asks the agent to change section 3 and it changes right here. Click her name tag to see why and her conversation.'],
+      ['Ask in your session', 'Send “Auto-invite in section 3 isn’t great. Switch to manual invite”. The agent applies it and tells you opinions differ.'],
+      ['Edit directly when it is faster', 'Hover a section title and pick Edit. Everyone sees your draft live; it lands in the activity log as a human edit, with a diff.'],
+      ['Open a discussion when opinions differ', 'Teammates vote and comment. Once you conclude, the agent applies the result and records it in the decision log.'],
+      ['Tell the agent what you like', 'A 👍 on a change tells the agent which direction the team prefers. Copy the invite link to bring real teammates in.'],
+    ],
     export_btn: 'Export', export_md: 'Markdown (.md)', export_html: 'Web page (.html)', export_pdf: 'PDF (print)', export_docx: 'Word (.docx)', export_json: 'JSON with change history (.json)', export_blocked: 'Allow pop-ups to print to PDF',
     err_stale: 'Someone changed this section while you were editing, so your edit was not saved. Try again on the latest version.', err_frozen: 'This section has an open discussion. Conclude it first.',
   });
@@ -228,7 +235,7 @@ window.RelayI18N = (() => {
   Object.assign(KO, {
     land_tag: '에이전트 하나를 팀 전체가 함께 써요. 모든 변경에 누가, 왜 바꿨는지 남아요.',
     land_name: '이름', land_name_ph: '예: 유래', land_avatar: '아바타',
-    land_start: '방 만들기', land_join: '{id} 방에 들어가기', land_new: '새 방 만들기',
+    land_start: '방 만들기', land_join: '{id} 방에 들어가기', land_join_btn: '들어가기', land_new: '새 방 만들기',
     land_hint_start: '민수·지은의 이전 수정이 담긴 데모 기획서 사본을 새로 받아요. 링크로 다른 사람을 초대할 수 있어요.',
     land_hint_join: '{id} 방에 초대받았어요. 방에 있는 모두가 같은 문서를 실시간으로 봐요.',
     land_err_name: '이름을 입력해 주세요', land_err_conf: '서버 설정이 아직 안 됐어요 (Supabase 키 없음).',
@@ -250,6 +257,13 @@ window.RelayI18N = (() => {
     sess_empty: '아직 이 세션에 메시지가 없어요.', ask_prefix: '{sec}에 대해: ', opened_by_agent: '에이전트가 열음',
     disc_empty_live: '두 사람의 수정이 엇갈리면 에이전트가 여기에 토론을 열고 팀의 결론을 기다려요.',
     offline: '연결이 끊겼어요 · 다시 연결하는 중…', model_label: '모델', model_title: '내 요청에 에이전트가 쓸 모델',
+    guide_steps_live: [
+      ['문서가 바뀌는 걸 보세요', '내 세션의 "팀원 불러오기"를 누르면 지은님이 에이전트에게 3번 수정을 요청하고, 문서가 그 자리에서 바뀌어요. 이름표를 누르면 이유와 대화가 보여요.'],
+      ['내 세션에서 요청하세요', '"3번 자동 초대 별로야. 수동 초대로 바꿔줘"를 보내면 에이전트가 반영하고 의견이 갈린다고 알려 줘요.'],
+      ['빠르면 직접 고치세요', '섹션 제목에 올리면 "직접 수정"이 있어요. 고치는 내용이 모두에게 실시간으로 보이고, 활동 로그에 사람 수정으로 diff와 함께 남아요.'],
+      ['의견이 갈리면 토론을 여세요', '팀원들이 투표하고 의견을 남겨요. 결론을 확정하면 에이전트가 반영하고 결정 기록에 남겨요.'],
+      ['마음에 드는 방향을 알려 주세요', '변경에 👍를 누르면 에이전트가 팀이 좋아하는 방향을 알게 돼요. 초대 링크로 진짜 팀원도 부를 수 있어요.'],
+    ],
     export_btn: '내보내기', export_md: 'Markdown (.md)', export_html: '웹 페이지 (.html)', export_pdf: 'PDF (인쇄)', export_docx: 'Word (.docx)', export_json: '변경 기록 포함 JSON (.json)', export_blocked: 'PDF로 인쇄하려면 팝업을 허용해 주세요',
     err_stale: '수정하는 동안 다른 사람이 이 섹션을 바꿔서 저장하지 않았어요. 최신 내용에서 다시 고쳐 주세요.', err_frozen: '이 섹션은 토론이 진행 중이에요. 결론을 먼저 내 주세요.',
   });

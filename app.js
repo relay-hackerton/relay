@@ -1,6 +1,6 @@
 /* Relay MVP: the prototype's screens, driven by Store (Supabase + /api). One agent, many people, every change traceable, live. */
 (() => {
-  const { MEMBERS, DOC_EN } = window.SEED;
+  const { MEMBERS, EXTRA_MEMBERS, DOC_EN, LIBRARY } = window.SEED;
   const DOC = DOC_EN;                      // the shared document body is English; UI strings follow the language toggle
   const { t, lang } = window.RelayI18N;
   const Diff = window.RelayDiff;
@@ -17,6 +17,7 @@
     lock: 'M7 11V7a5 5 0 0 1 10 0v4M5 11h14v10H5z', link: 'M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1',
     pencil: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z', userplus: 'M15 19a6 6 0 0 0-12 0M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6',
     panel: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm11 0v14', check: 'm5 12 5 5 9-10',
+    minus: 'M5 12h14', unlock: 'M7 11V7a5 5 0 0 1 9.9-1M5 11h14v10H5z',
   };
   const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[n]}"/></svg>`;
 
@@ -49,12 +50,15 @@
 
   /* ---------- state ---------- */
   const state = {
-    view: 'landing', tab: 'doc', me: null, roomId: null, room: null, viewing: null, landing: { busy: false, err: '', avatar: null },
+    view: 'home', tab: 'doc', me: null, roomId: null, room: null, viewing: null, landing: { busy: false, err: '', avatar: null },
+    zoom: 100, page: 1, units: clone(LIBRARY).map((u) => (u.live ? { ...u, title: DOC_EN.title } : u)), issueDraft: null,
+    myPrivate: (() => { try { return localStorage.getItem('relay.private') === '1'; } catch (e) { return false; } })(),
     sections: [], changeList: [], messages: [], discRows: [], votes: [], presence: [],
     editing: {}, recent: {}, showDiff: {}, unread: new Set(), lastSeen: {},
     openPop: null, popMeta: null, openEntry: null, openDiffs: new Set(), logCat: 'all', logMember: 'all',
     ctx: null, pending: false, queued: false, resolving: null, botBusy: false, conclusion: {}, collapsed: false, localMsgs: [],
     animating: 0, docDirty: false, agentStatus: 'idle', myEdit: null, saving: false,
+    reactions: [], commentRows: [], draftDisc: null,
     models: [], model: (() => { try { return localStorage.getItem('relay.model') || ''; } catch (e) { return ''; } })(),
   };
   const ME = () => state.me && state.me.userId;
@@ -70,9 +74,26 @@
   const changesOf = (sid) => state.changeList.filter((c) => c.sectionId === sid);
   const changeById = (cid) => state.changeList.find((c) => c.id === cid);
   const latestChange = (sid) => { const s = secById(sid); const byId = s && s.lastChangeId && changeById(s.lastChangeId); if (byId) return byId; const l = changesOf(sid); return l.length ? l[l.length - 1] : null; };
+  const likesOf = (cid) => state.reactions.filter((r) => r.change_id === cid).map((r) => r.user_id);
+  function likeHtml(c, cls = '') {
+    const likes = likesOf(c.id); const mine = likes.includes(ME());
+    const names = likes.map(name).join(' · ');
+    return `<button class="like ${mine ? 'on' : 'off'} ${cls}" data-like="${c.id}" aria-pressed="${mine}" title="${esc(names ? t('liked_by', { names }) : t('like'))}"><span class="emoji">👍</span>${likes.length ? `<span class="n">${likes.length}</span>` : ''}</button>`;
+  }
+  async function toggleLike(cid) {
+    const c = changeById(cid); if (!c) return;
+    const on = !likesOf(cid).includes(ME());
+    if (on) state.reactions.push({ change_id: cid, room_id: state.roomId, user_id: ME(), user_name: state.me.name, created_at: new Date().toISOString() });
+    else state.reactions = state.reactions.filter((r) => !(r.change_id === cid && r.user_id === ME()));
+    renderDoc(); renderLog(); P.renderDisc();
+    const r = await Store.like(cid, on);
+    if (r.error) return toast(t('err_generic', { err: r.error }));
+    if (on && c.by !== ME()) localSay(t('msg.like_ack', { who: c.by === 'agent' ? t('agent_name') : esc(c.byName || name(c.by)), sec: secRef(c.sectionId), summary: esc(c.summary) }));
+  }
   const latestChangeTime = () => state.changeList.reduce((a, c) => (!a || c.at > a ? c.at : a), null);
   const draftOf = (sid) => { const p = state.presence.find((x) => x.userId !== ME() && x.editing === sid && Array.isArray(x.draft)); return p ? p.draft : null; };
   const humanEditing = (sid) => { const p = state.presence.find((x) => x.userId !== ME() && x.editing === sid); return p ? p.userId : null; };
+  const isPrivate = (id) => (id === ME() ? state.myPrivate : !!(state.presence.find((p) => p.userId === id) || {}).private);
   const openDiscRow = (sid) => state.discRows.find((d) => d.section_id === sid && d.status === 'open');
   function participants() {
     const ids = new Set([ME()]);
@@ -86,7 +107,7 @@
     return {
       id: d.id, n: d.n, sectionId: d.section_id, title: d.title, question: d.question, openedBy: d.opened_by_id || 'agent', at: new Date(d.created_at), status: d.status, result: d.result,
       applied: d.applied ? { before: d.applied.before, after: d.applied.after, changeId: d.applied.change_id, at: new Date(d.applied.at) } : null,
-      comments: vs.filter((v) => v.comment).map((v) => ({ by: v.user_id, text: v.comment, at: new Date(v.created_at) })),
+      comments: [...vs.filter((v) => v.comment).map((v) => ({ by: v.user_id, text: v.comment, at: new Date(v.created_at) })), ...state.commentRows.filter((c) => c.discussion_id === d.id).map((c) => ({ by: c.user_id, text: c.text, at: new Date(c.created_at) }))].sort((a, b) => a.at - b.at),
       conclusion: state.conclusion[d.id] || '',
       options: (d.options || []).map((o) => ({ ...o, votes: vs.filter((v) => v.option_id === o.id).map((v) => v.user_id) })),
     };
@@ -215,18 +236,13 @@
       const m = member(id); const mine = id === ME();
       const p = state.presence.find((x) => x.userId === id);
       const where = p && p.sectionId ? ` · ${secLabel(p.sectionId)}` : '';
-      const title = `${m.name} · ${mine ? t('presence_me') : m.bot ? t('presence_bot') : t('presence_online')}${where}${mine ? '' : ' · ' + t('presence_view')}`;
+      const priv = isPrivate(id);
+      const title = `${m.name} · ${mine ? t('presence_me') : m.bot ? t('presence_bot') : t('presence_online')}${where}${priv ? ' · ' + t('presence_private') : ''}${mine || priv ? '' : ' · ' + t('presence_view')}`;
       return `<button class="av live ${state.viewing === id ? 'current' : ''}" data-user="${id}" style="--c:${m.color}" title="${esc(title)}">${m.photo ? `<img src="${m.photo}" alt="${esc(m.name)}">` : esc(initial(m.name))}</button>`;
     }).join('');
   }
   const botDone = () => state.changeList.some((c) => c.by === 'bot_jieun' && c.sectionId === 's3');
-  function renderHeaderActions() {
-    const b = $('#botBtn'); if (!b) return;
-    const on = botDone();
-    b.innerHTML = `${icon('userplus')}<span>${on ? t('bot_on') : state.botBusy ? t('bot_busy') : t('bot_btn')}</span>`;
-    b.disabled = !!(on || state.botBusy);
-    $('#inviteBtn').innerHTML = `${icon('link')}<span>${t('invite_btn')}</span>`;
-  }
+  function renderHeaderActions() { if (state.viewing === ME() && state.view === 'doc') renderChat(); }   // the teammate/invite buttons live in the welcome message
 
   /* ---------- the right pane: my session or someone else's (read-only) ---------- */
   function viewSession(id) { state.viewing = id; renderPresence(); renderChatHead(); renderGuide(); renderChat(); renderComposer(); }
@@ -247,9 +263,10 @@
       <span class="head-acts">${mine ? modelPicker() : `<button class="btn ghost" data-user="${ME()}">${t('back_to_mine')}</button>`}<button class="iconbtn sm" data-collapse title="${t('collapse')}">${icon('panel')}</button></span>`;
   }
   function renderComposer() {
-    const mine = state.viewing === ME();
+    const mine = state.viewing === ME(); const priv = state.myPrivate;
     $('#composer').hidden = !mine; $('#readonly').hidden = mine;
     if (!mine) $('#readonly').innerHTML = `${icon('lock')}<span>${t('readonly_badge')}</span>`;
+    const lb = $('#lockBtn'); if (lb) { lb.innerHTML = icon(priv ? 'lock' : 'unlock'); lb.title = priv ? t('lock_private') : t('lock_public'); lb.setAttribute('aria-pressed', priv); lb.setAttribute('aria-label', lb.title); lb.classList.toggle('on', priv); lb.dataset.lock = '1'; }
     $('.send').disabled = state.pending;
     $('#composer').classList.toggle('busy', state.pending);
   }
@@ -272,6 +289,7 @@
     if (meta.applied && meta.action === 'edit') h += `<p class="meta"><span class="done"><i></i>${t('msg.applied_meta')}</span> · ${secRef(meta.applied)}${via}</p>${c ? diffMini(c) : ''}`;
     else if (via) h += `<p class="meta">${via.slice(3)}</p>`;
     if (meta.action === 'resolve' && c) h += `<div class="acts"><button class="btn" data-goto-diff="${c.sectionId}:${c.id}:${esc(t('compare_label_disc', { n: (state.discRows.find((d) => d.id === meta.discussion_id) || {}).n }))}">${t('msg.see_changes')}</button><button class="btn ghost" data-goto="s8">${t('msg.see_decision')}</button></div>`;
+    if (meta.action === 'none' && meta.discussion_id) h += `<div class="acts"><button class="btn" data-disc="${meta.discussion_id}">${t('see_disc')}</button></div>`;
     if (meta.conflict) {
       const cf = meta.conflict;
       h += `<div class="note">${t('msg.conflict_live', { note: esc(cf.note) })}${cf.discussion_id ? ` ${esc(t('msg.conflict_disc', { n: cf.discussion_n || '' }))}` : ''}</div><div class="acts">${cf.discussion_id ? `<button class="btn primary" data-disc="${cf.discussion_id}">${t('see_disc')}</button>` : ''}${changeById(cf.change_id) ? `<button class="btn" data-session="ch:${cf.change_id}">${esc(t('msg.see_convo_of', { name: cf.by_name }))}</button>` : ''}</div>`;
@@ -281,9 +299,10 @@
   function renderChat() {
     const box = $('#msgs'); const id = state.viewing; if (!id) return;
     const mine = id === ME();
+    if (!mine && isPrivate(id)) { box.innerHTML = `<div class="private-note">${icon('lock')}<h3>${t('private_h')}</h3><p>${esc(t('private_p', { name: name(id) }))}</p></div>`; return; }
     const list = state.messages.filter((m) => m.userId === id);
     const items = [];
-    if (mine) items.push({ role: 'agent', html: t('msg.welcome_live', { name: esc(name(id)) }), at: new Date(0) });
+    if (mine) items.push({ role: 'agent', html: t('msg.welcome', { name: esc(name(id)) }) + `<div class="acts">${botDone() ? '' : `<button class="btn primary" data-bot ${state.botBusy ? 'disabled' : ''}>${state.botBusy ? t('bot_busy') : t('bot_btn')}</button>`}<button class="btn" data-invite>${t('invite_btn')}</button></div>`, at: new Date(0) });
     list.forEach((m) => items.push(m.role === 'agent' ? { role: 'agent', html: agentHtml(m), at: m.at } : { role: 'me', text: m.text, at: m.at }));
     if (mine) state.localMsgs.forEach((m) => items.push(m));
     items.sort((a, b) => a.at - b.at);
@@ -306,7 +325,7 @@
     return 0;
   }
   function renderGuide() {
-    const el = $('#guide'); if (!el) return;
+    const el = $('#guide'); if (!el) return;   // the prototype has no guide card; the walkthrough is the guide modal
     if (state.viewing !== ME()) { el.hidden = true; return; }
     el.hidden = false;
     const step = guideStep(); const steps = t('guide_live'); const [h, p] = steps[step];
@@ -318,7 +337,7 @@
     el.innerHTML = `<div class="g-head"><span class="g-dots">${steps.map((_, i) => `<i class="${i < step ? 'done' : i === step ? 'on' : ''}"></i>`).join('')}</span><span class="g-k">${esc(t('guide_title'))} · ${esc(t('guide_step', { n: step + 1 }))}</span></div>
       <div class="g-body"><b>${esc(h)}</b><p>${esc(p)}</p><div class="g-act">${act}</div></div>`;
   }
-  function renderChips() { $('#chips').innerHTML = t('chips_live').map((c) => `<button type="button" class="chip">${esc(c)}</button>`).join(''); }
+  function renderChips() { $('#chips').innerHTML = t('chips').map((c) => `<button type="button" class="chip">${esc(c)}</button>`).join(''); }
   function renderCtx() {
     $('#ctx').innerHTML = state.ctx ? `<span class="ctx">${esc(t('ctx_about', { sec: secLabel(state.ctx) }))}<button type="button" data-ctx-clear aria-label="${t('ctx_clear')}">${icon('close')}</button></span>` : '';
     $('#input').placeholder = state.ctx ? t('input_ph_ctx', { sec: secLabel(state.ctx) }) : t('input_ph');
@@ -354,12 +373,19 @@
   function setTab(tab) {
     state.tab = tab;
     ['doc', 'disc', 'log'].forEach((x) => { $(`#tab${x[0].toUpperCase() + x.slice(1)}`).setAttribute('aria-selected', x === tab); $(`#${x}Pane`).hidden = x !== tab; });
+    $('#viewer').hidden = tab !== 'doc';
     if (tab === 'doc') renderCursors();
   }
-  function renderExport() {
-    const box = $('#exportBox'); if (!box) return;
-    box.innerHTML = `<button class="btn ghost sm" data-export-menu aria-expanded="${!!state.exportOpen}">${t('export_btn')}</button>${state.exportOpen ? `<div class="export-menu">${window.RelayExport.FORMATS.map((f) => `<button type="button" data-export="${f}">${esc(t('export_' + f))}</button>`).join('')}</div>` : ''}`;
+  function renderExport() { renderViewer(); }
+  function renderViewer() {
+    const v = $('#viewer'); if (!v) return;
+    const title = (state.room && state.room.title) || DOC.title;
+    v.innerHTML = `<span class="name">${esc(title)} · ${t('spec')}</span><span class="spacer"></span>
+      <span class="grp export"><button data-export-menu aria-expanded="${!!state.exportOpen}">${t('export_btn')}</button>${state.exportOpen ? `<div class="export-menu">${window.RelayExport.FORMATS.map((f) => `<button type="button" data-export="${f}">${esc(t('export_' + f))}</button>`).join('')}</div>` : ''}</span>
+      <span class="grp"><button data-page="-1" aria-label="${t('prev_page')}" ${state.page === 1 ? 'disabled' : ''}>${icon('back')}</button><span class="mono">${state.page} / 2</span><button data-page="1" aria-label="${t('next_page')}" ${state.page === 2 ? 'disabled' : ''}>${icon('next')}</button></span>
+      <span class="grp"><button data-zoom="-10" aria-label="${t('zoom_out')}" ${state.zoom <= 80 ? 'disabled' : ''}>${icon('minus')}</button><span class="mono">${state.zoom}%</span><button data-zoom="10" aria-label="${t('zoom_in')}" ${state.zoom >= 130 ? 'disabled' : ''}>${icon('plus')}</button></span>`;
   }
+  function gotoPage(n) { const el = $$('.paper')[n - 1]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   function doExport(format) {
     state.exportOpen = false; renderExport();
     let ok;
@@ -386,12 +412,12 @@
     $('#docTitle').textContent = title;
     const p1 = state.sections.filter((s) => (s.page || 1) === 1), p2 = state.sections.filter((s) => s.page === 2);
     $('#docPane').innerHTML = `
-      <div class="paper-wrap" style="--zoom:1">
+      <div class="paper-wrap" style="--zoom:${state.zoom / 100}">
         <article class="paper"><h1>${esc(title)}</h1><p class="lede">${esc(DOC.lede)}</p>${p1.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(DOC.footer)}</span><span>01 / 02</span></div></article>
         <article class="paper">${p2.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(DOC.footer)}</span><span>02 / 02</span></div></article>
       </div>`;
     if (keepHtml != null) { const el = $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`); if (el) { el.innerHTML = keepHtml; if (hadFocus) { el.focus(); if (caret != null) restoreCaret(el, caret); } } }
-    renderDocMeta(); renderCursors();
+    renderViewer(); renderDocMeta(); renderCursors();
   }
   /* keep my caret where it was when the document re-renders under me */
   function saveCaret(root) {
@@ -443,6 +469,7 @@
           <h2><span class="num">${sec.num}</span>${esc(sec.title)}</h2>
           ${mine ? `<span class="edit-tools"><span class="hint">${t('editing_hint')}</span><button class="btn primary sm" data-save-edit ${state.saving ? 'disabled' : ''}>${t('save')}</button><button class="btn ghost sm" data-cancel-edit>${t('cancel')}</button></span>`
           : `<span class="sec-tools">
+            ${!disc && !ed && !hed && !state.draftDisc ? `<button class="tool" data-open-disc="${sec.id}">${t('open_disc')}</button>` : ''}
             <button class="tool" data-ask="${sec.id}">${t('ask_agent')}</button>
             ${!ed && !hed && !disc && !state.myEdit ? `<button class="tool" data-edit="${sec.id}">${icon('pencil')}${t('edit_direct')}</button>` : ''}
             ${ch && !unread && !state.recent[sec.id] ? `<button class="tool" data-pop="${sec.id}">${t('history')}</button>` : ''}
@@ -496,6 +523,7 @@
           ${ch.kind === 'agent' ? `<button class="btn" data-session="ch:${ch.id}">${isMe ? t('see_my_convo') : t('see_convo')}</button>` : ''}
           ${ch.discussionId ? `<button class="btn" data-disc="${ch.discussionId}">${t('see_disc')}</button>` : ''}
           ${!isMe && !isAgent ? `<button class="btn agent" data-ask="${sectionId}">${t('ask_different')}</button>` : ''}
+          ${!isMe ? likeHtml(ch) : ''}
         </div>
         ${earlier.length ? `<div class="pop-earlier"><b>${t('pop_earlier')}</b>${earlier.map((c) => `<span class="row">${avatar(c.by, 'sm')}<span>${esc(c.summary)}</span><span class="t mono">${fmt(c.at)}</span></span>`).join('')}</div>` : ''}
       </div>`;
@@ -541,12 +569,15 @@
     presTimer = setTimeout(() => {
       const sc = $('#leftScroll'); const mid = sc.getBoundingClientRect().top + sc.clientHeight / 2;
       let best = null, dist = Infinity;
-      $$('.sec').forEach((el) => { const r = el.getBoundingClientRect(); const d = mid < r.top ? r.top - mid : mid > r.bottom ? mid - r.bottom : 0; if (d < dist) { dist = d; best = el.dataset.id; } });
+      $$('#docPane .sec').forEach((el) => { const r = el.getBoundingClientRect(); const d = mid < r.top ? r.top - mid : mid > r.bottom ? mid - r.bottom : 0; if (d < dist) { dist = d; best = el.dataset.id; } });
       if (best) Store.setPresence({ sectionId: best });
     }, 350);
   }
   $('#leftScroll').addEventListener('scroll', () => {
     if (state.tab !== 'doc') return;
+    const sc = $('#leftScroll'); const mid = sc.scrollTop + sc.clientHeight / 2;
+    let page = 1; $$('.paper').forEach((pp, i) => { if (pp.offsetTop * (state.zoom / 100) <= mid) page = i + 1; });
+    if (page !== state.page) { state.page = page; renderViewer(); }
     trackMySection();
     dismissSeen((key) => { const el = elOfKey(key); return el && visibleRatio(el) < 0.25; });
   });
@@ -577,45 +608,129 @@
     if (r && r.error) toast(r.error === 'stale' ? t('err_stale') : r.error === 'frozen' ? t('err_frozen') : t('err_generic', { err: r.error }));
   }
 
-  /* ---------- landing: name, avatar, start or join ---------- */
+  /* ---------- home: the workspace library, as in the prototype ---------- */
+  const ago = (mins) => mins < 1 ? t('ago_now') : mins < 60 ? t('ago_min', { n: Math.round(mins) }) : mins < 1440 ? t('ago_h', { n: Math.round(mins / 60) }) : t('ago_d', { n: Math.round(mins / 1440) });
+  /* the first page of a spec, as the document renders it, used shrunk as a thumbnail */
+  function pageHtml(title, lede, sections) {
+    return `<article class="paper"><h1>${esc(title)}</h1><p class="lede">${esc(lede)}</p>${sections.map((x, i) => `<section class="sec"><header class="sec-h"><h2><span class="num">${i + 1}</span>${esc(x[0])}</h2></header><div class="sec-body">${x[1].map((pp) => `<p class="${pp ? '' : 'draft'}">${esc(pp || t('draft_line'))}</p>`).join('')}</div></section>`).join('')}<div class="paper-foot mono"><span>${esc(DOC.footer)}</span><span>01</span></div></article>`;
+  }
+  function unitPage(u) {
+    if (u.live) { const secs = state.sections.length ? state.sections : DOC_EN.sections; return pageHtml((state.room && state.room.title) || DOC_EN.title, DOC_EN.lede, secs.filter((x) => (x.page || 1) === 1).map((x) => [x.title, x.paras])); }
+    return pageHtml(u.title, u.preview.lede, u.preview.sections.map((x) => [x[0], [x[1]]]));
+  }
+  function face(mid) {
+    if (mid === 'me') return state.me ? avatar(ME(), 'sm') : `<span class="av sm" style="--c:${MEMBERS.me.color}"><img src="${MEMBERS.me.photo}" alt=""></span>`;
+    if (MEMBERS[mid]) return `<span class="av sm" style="--c:${MEMBERS[mid].color}"><img src="${MEMBERS[mid].photo}" alt="${esc(MEMBERS[mid].name)}"></span>`;
+    const x = EXTRA_MEMBERS[mid]; return x ? `<span class="av sm" style="--c:${x.color}">${x.initial}</span>` : avatar(mid, 'sm');
+  }
+  function renderHome() {
+    const unread = state.unread.size; const openDisc = state.discRows.filter((d) => d.status === 'open').length;
+    const MAX_AV = 4;
+    const faces = (ids) => ids.slice(0, MAX_AV).map(face).join('') + (ids.length > MAX_AV ? `<span class="av sm more">+${ids.length - MAX_AV}</span>` : '');
+    $('#home').innerHTML = `
+      <div class="home-main">
+        <div class="home-h"><h1>${t('home_title')}</h1><button class="btn primary" data-add-issue>${icon('plus')}${t('add_issue')}</button></div>
+        <div class="units">
+          ${state.units.map((u) => {
+            const mins = u.live && latestChangeTime() ? (Date.now() - latestChangeTime()) / 60000 : u.editedMin;
+            return `<button class="unit ${u.live ? 'live' : ''} ${u.fresh ? 'fresh' : ''}" data-open-unit="${u.id}" style="--accent:${u.accent}">
+              <span class="thumb">${unitPage(u)}</span>
+              <span class="u-title">${u.live && unread ? `<i class="dot" title="${esc(t('unread_n', { n: unread }))}"></i>` : ''}${esc(u.title)}</span>
+              <span class="u-meta"><span class="avs">${faces(u.members)}</span><span>${ago(mins)}</span>${u.live && openDisc ? `<b class="warn">${t('disc_open_n', { n: openDisc })}</b>` : ''}</span>
+            </button>`; }).join('')}
+        </div>
+      </div>`;
+  }
+  /* add an issue: title, goal, members, starting point → a new card with its first page (prototype behaviour) */
+  function openIssueModal() {
+    const PEOPLE = ['me', 'minsu', 'jieun', 'hyunwoo'];
+    state.issueDraft = { members: new Set(['me']), start: 'template' };
+    $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><form class="modal issue" id="issueForm" role="dialog" aria-modal="true" aria-labelledby="iTitle">
+      <h2 id="iTitle">${t('issue_new')}</h2>
+      <label>${t('issue_title')}<input id="iName" maxlength="80" placeholder="${esc(t('issue_title_ph'))}" autocomplete="off"></label>
+      <label>${t('issue_goal')}<input id="iGoal" maxlength="140" placeholder="${esc(t('issue_goal_ph'))}" autocomplete="off"></label>
+      <div class="lbl-row">${t('issue_members')}</div>
+      <div class="member-pick">${PEOPLE.map((id) => `<button type="button" class="pick ${id === 'me' ? 'on' : ''}" data-pick="${id}" aria-pressed="${id === 'me'}">${face(id).replace('av sm', 'av')}<span>${esc(id === 'me' ? (state.me ? state.me.name : MEMBERS.me.name) : MEMBERS[id].name)}</span></button>`).join('')}</div>
+      <div class="lbl-row">${t('issue_start')}</div>
+      <div class="start-pick"><label class="radio"><input type="radio" name="start" value="template" checked>${t('start_template')}</label><label class="radio"><input type="radio" name="start" value="blank">${t('start_blank')}</label></div>
+      <div class="f"><span class="err" id="iErr"></span><span class="spacer"></span><button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button><button type="submit" class="btn primary">${t('create')}</button></div>
+    </form></div>`;
+    setTimeout(() => $('#iName') && $('#iName').focus(), 30);
+  }
+  function createIssue() {
+    const title = $('#iName').value.trim(); const goal = $('#iGoal').value.trim();
+    if (!title) { $('#iErr').textContent = t('err_issue_title'); $('#iName').focus(); return; }
+    const start = $('#issueForm input[name="start"]:checked').value;
+    const accents = ['#2F6BFF', '#7C5CFF', '#16A26A', '#D4860A', '#D9503B', '#0EA5A4'];
+    const unit = { id: `u${Date.now()}`, title, members: [...state.issueDraft.members], editedMin: 0, fresh: true, accent: accents[state.units.length % accents.length],
+      preview: { lede: goal || t('draft_line'), sections: start === 'template' ? t('tpl_sections').map((x) => [x, '']) : [] } };
+    state.units = [unit, ...state.units]; state.issueDraft = null;
+    closeModal(); renderHome(); toast(t('toast_created'));
+    setTimeout(() => { unit.fresh = false; }, 2000);
+  }
+
+  /* ---------- who you are: name and avatar, asked once in the prototype's modal style ---------- */
   const roomFromPath = () => { const m = location.pathname.match(/^\/r\/([a-z0-9]{4,12})\/?$/i); return m ? m[1].toLowerCase() : null; };
   function loadMe() { try { const v = JSON.parse(localStorage.getItem('relay.me') || 'null'); return v && v.userId && v.name ? v : null; } catch (e) { return null; } }
   function saveMe(v) { try { localStorage.setItem('relay.me', JSON.stringify(v)); } catch (e) { /* private mode */ } }
-  function renderLanding() {
-    const L = state.landing; const rid = L.forceNew ? null : roomFromPath(); const saved = loadMe();
+  function closeModal() { $('#modalRoot').innerHTML = ''; }
+  const closeJoin = () => { if ($('#landForm')) closeModal(); };   // keep the guide modal that entering the room may have opened
+  /* mode: 'start' (create a room from the live card) or 'join' (an invite link) */
+  function openJoinModal(mode) {
+    const L = state.landing; L.mode = mode; const rid = mode === 'join' ? roomFromPath() : null; const saved = loadMe();
     const nm = L.name ?? (saved ? saved.name : '');
     const av = L.avatar || (saved && saved.avatar) || AVATARS[0]; L.avatar = av;
-    $('#home').innerHTML = `
-      <div class="landing"><form class="land-card" id="landForm">
-        <div class="land-brand"><span class="brand-mark" aria-hidden="true"></span>Relay</div>
-        <h1>${esc(t('land_tag'))}</h1>
-        <ul class="land-points">${t('land_points').map((x) => `<li>${icon('check')}<span>${esc(x)}</span></li>`).join('')}</ul>
-        <label class="land-field">${t('land_name')}<input id="lName" maxlength="24" autocomplete="off" value="${esc(nm)}" placeholder="${esc(t('land_name_ph'))}"></label>
-        <div class="lbl-row">${t('land_avatar')}</div>
-        <div class="avatar-pick">${AVATARS.map((a) => `<button type="button" class="pick ${a === av ? 'on' : ''}" data-avatar="${a}" aria-pressed="${a === av}">${avatarOf(a, nm || '?')}</button>`).join('')}</div>
-        <button type="submit" class="btn primary big" ${L.busy ? 'disabled' : ''}>${esc(L.busy ? (rid ? t('land_busy_join') : t('land_busy_start')) : (rid ? t('land_join', { id: rid }) : t('land_start')))}</button>
-        <p class="land-hint">${esc(rid ? t('land_hint_join', { id: rid }) : t('land_hint_start'))}</p>
-        ${rid ? `<button type="button" class="btn ghost sm" data-new-room>${t('land_new')}</button>` : ''}
-        ${L.err ? `<p class="err">${esc(L.err)}</p>` : ''}
-      </form></div>`;
+    $('#modalRoot').innerHTML = `<div class="overlay" ${L.busy ? '' : 'data-overlay'}><form class="modal issue join" id="landForm" role="dialog" aria-modal="true" aria-labelledby="jTitle">
+      <h2 id="jTitle">${esc(rid ? t('land_join', { id: rid }) : t('land_start'))}</h2>
+      <p class="sub">${esc(rid ? t('land_hint_join', { id: rid }) : t('land_hint_start'))}</p>
+      <label>${t('land_name')}<input id="lName" maxlength="24" autocomplete="off" value="${esc(nm)}" placeholder="${esc(t('land_name_ph'))}"></label>
+      <div class="lbl-row">${t('land_avatar')}</div>
+      <div class="avatar-pick">${AVATARS.map((a) => `<button type="button" class="pick ${a === av ? 'on' : ''}" data-avatar="${a}" aria-pressed="${a === av}">${avatarOf(a, nm || '?')}</button>`).join('')}</div>
+      <div class="f"><span class="err">${esc(L.err || '')}</span><span class="spacer"></span>${rid || L.busy ? '' : `<button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button>`}<button type="submit" class="btn primary" ${L.busy ? 'disabled' : ''}>${esc(L.busy ? (rid ? t('land_busy_join') : t('land_busy_start')) : (rid ? t('land_join_btn') : t('land_start')))}</button></div>
+    </form></div>`;
+    setTimeout(() => { const i = $('#lName'); if (i && !L.busy) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 30);
   }
   async function submitLanding() {
     const L = state.landing; if (L.busy) return;
     const nm = ($('#lName').value || '').trim(); L.name = nm;
-    if (!nm) { L.err = t('land_err_name'); renderLanding(); $('#lName').focus(); return; }
-    if (!Store.configured()) { L.err = t('land_err_conf'); renderLanding(); return; }
+    if (!nm) { L.err = t('land_err_name'); openJoinModal(L.mode); return; }
+    if (!Store.configured()) { L.err = t('land_err_conf'); openJoinModal(L.mode); return; }
     const saved = loadMe();
     const me = { userId: saved && saved.userId ? saved.userId : `u_${Math.random().toString(36).slice(2, 10)}`, name: nm, avatar: L.avatar || AVATARS[0] };
     saveMe(me); state.me = me; learn(me.userId, me.name, me.avatar);
-    L.busy = true; L.err = ''; renderLanding();
-    try {
-      let rid = L.forceNew ? null : roomFromPath();
-      if (!rid) { rid = await Store.createRoom(); history.pushState(null, '', `/r/${rid}${location.search}`); }
-      await enterRoom(rid);
-    } catch (e) {
-      L.busy = false; L.err = e.message === 'room_not_found' ? t('land_err_room') : t('err_generic', { err: e.message }); if (e.message === 'room_not_found') L.forceNew = true;
-      renderLanding();
-    }
+    L.err = '';
+    if (L.mode === 'join') return joinRoom(roomFromPath());
+    return startRoom();
+  }
+  /* the live card at "/" makes a fresh room; inside a room it just opens the document */
+  async function startRoom() {
+    const L = state.landing;
+    if (!state.me) return openJoinModal('start');
+    L.busy = true; openJoinModal('start');
+    try { const rid = await Store.createRoom(); history.pushState(null, '', `/r/${rid}${location.search}`); L.busy = false; await enterRoom(rid); closeJoin(); }
+    catch (e) { L.err = t('err_generic', { err: e.message }); openJoinModal('start'); }
+    L.busy = false;
+  }
+  async function joinRoom(rid) {
+    const L = state.landing; L.busy = true; openJoinModal('join');
+    try { L.busy = false; await enterRoom(rid); closeJoin(); }
+    catch (e) { L.busy = false; if (e.message === 'room_not_found') { history.replaceState(null, '', `/${location.search}`); L.err = t('land_err_room'); openJoinModal('start'); } else { L.err = t('err_generic', { err: e.message }); openJoinModal('join'); } return; }
+    L.busy = false;
+  }
+  /* the walkthrough modal, shown once per room */
+  function openGuide() {
+    $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><div class="modal" role="dialog" aria-modal="true" aria-labelledby="gTitle">
+      <h2 id="gTitle">${t('guide_h')}</h2><p class="sub">${t('guide_sub')}</p>
+      <div class="g-steps">${t('guide_steps_live').map((x, i) => `<div class="g-step"><span class="n">${i + 1}</span><div><b>${x[0]}</b><p>${x[1]}</p></div></div>`).join('')}</div>
+      <div class="f"><button class="btn ghost" data-reset>${t('guide_reset')}</button><span class="spacer"></span><button class="btn primary" data-modal-close>${t('guide_start')}</button></div>
+    </div></div>`;
+    setTimeout(() => $('[data-modal-close]') && $('[data-modal-close]').focus(), 30);
+  }
+  function maybeGuide() {
+    if ($('#landForm')) closeModal();
+    const k = `relay.guide.${state.roomId}`;
+    try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch (e) { /* fine */ }
+    openGuide();
   }
 
   /* ---------- joining a room and live updates ---------- */
@@ -633,6 +748,7 @@
     state.changeList = data.changes.map(normChange);
     state.messages = data.messages.map(normMessage);
     state.discRows = data.discussions; state.votes = data.votes; state.presence = data.presence || [];
+    state.reactions = data.reactions || []; state.commentRows = data.comments || [];
     state.messages.forEach((m) => learn(m.userId, m.userName, m.meta && m.meta.avatar));
     state.changeList.forEach((c) => learn(c.by, c.byName));
     state.votes.forEach((v) => learn(v.user_id, v.user_name));
@@ -667,13 +783,20 @@
     setTimeout(() => { renderDoc(); renderTabs(); typeIn(next.id, prev); }, 350);
   });
   Store.on('changes', ({ type, row }) => { if (type !== 'INSERT') return; const c = normChange(row); learn(c.by, c.byName); upsert(state.changeList, c); renderDoc(); renderLog(); renderTabs(); renderChat(); renderGuide(); renderHeaderActions(); });
-  Store.on('messages', ({ type, row }) => { if (type !== 'INSERT') return; const m = normMessage(row); learn(m.userId, m.userName, m.meta.avatar); upsert(state.messages, m); if (m.userId === state.viewing) renderChat(); renderLog(); renderTabs(); });
+  Store.on('messages', ({ type, row }) => { if (type !== 'INSERT') return; const m = normMessage(row); learn(m.userId, m.userName, m.meta.avatar); upsert(state.messages, m);
+    if (m.userId === ME() && m.role === 'agent' && m.meta.compose && state.view === 'doc') setTimeout(() => P.composeDiscussion(m.meta.compose.sectionId || 'none', m.meta.compose), 400); if (m.userId === state.viewing) renderChat(); renderLog(); renderTabs(); });
   Store.on('discussions', ({ row }) => { if (!row || row.room_id !== state.roomId) return; upsert(state.discRows, row); state.discRows.sort((a, b) => a.n - b.n); P.renderDisc(); renderTabs(); renderDoc(); renderAgent(); renderGuide(); renderLog(); });
   Store.on('votes', ({ type, row }) => {
     if (!row) return; const key = (v) => `${v.discussion_id}:${v.user_id}`;
     if (type === 'DELETE') state.votes = state.votes.filter((v) => key(v) !== key(row)); else { learn(row.user_id, row.user_name); upsert(state.votes, row, key); }
     P.renderDisc();
   });
+  Store.on('reactions', ({ type, row }) => {
+    if (!row) return; const key = (r) => `${r.change_id}:${r.user_id}`;
+    if (type === 'DELETE') state.reactions = state.reactions.filter((r) => key(r) !== key(row)); else { learn(row.user_id, row.user_name); upsert(state.reactions, row, key); }
+    renderDoc(); renderLog(); renderTabs(); P.renderDisc();
+  });
+  Store.on('comments', ({ type, row }) => { if (type !== 'INSERT' || !row) return; learn(row.user_id, row.user_name); upsert(state.commentRows, row); P.renderDisc(); });
   Store.on('room', ({ row }) => { if (!row) return; const wasBots = state.room && state.room.bots_on; state.room = row; renderAgent(); if (wasBots !== row.bots_on) { renderPresence(); renderHeaderActions(); } renderCursors(); });
   Store.on('presence', (list) => {
     const edits = (l) => JSON.stringify(l.filter((p) => p.userId !== ME()).map((p) => `${p.userId}:${p.editing || ''}`).sort());   // my own editing state is already local
@@ -693,12 +816,15 @@
   /* ---------- views ---------- */
   function showView(v) {
     state.view = v;
-    $('#home').hidden = v !== 'landing'; $('.main').hidden = v !== 'doc';
+    $('#home').hidden = v !== 'home'; $('.main').hidden = v !== 'doc';
     $$('.work-only').forEach((el) => { el.hidden = v !== 'doc'; });
-    document.body.classList.toggle('on-home', v === 'landing');
-    if (v === 'landing') return renderLanding();
+    $$('.home-only').forEach((el) => { el.hidden = v !== 'home'; });
+    document.body.classList.toggle('on-home', v === 'home');
+    if (v === 'home') return renderHome();
+    Store.setPresence({ private: state.myPrivate });
     renderPresence(); renderChatHead(); renderComposer(); renderGuide(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
     setTimeout(trackMySection, 600);
+    maybeGuide();
   }
   let toastTimer;
   function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 2200); }
@@ -708,22 +834,30 @@
   }
 
   /* ---------- panels (discussions, activity log) ---------- */
-  const R = { state, MEMBERS, $, $$, esc, fmt, t, icon, avatar, name, member, secById, secLabel, secRef, openDiscOf, latestChange, changeById, discussions, participants, sessionOf, renderDoc, renderTabs, setTab, gotoDiscussion, toast, Diff, ME, Store, lang };
+  const R = { state, MEMBERS, $, $$, esc, fmt, t, icon, avatar, name, member, secById, secLabel, secRef, openDiscOf, latestChange, changeById, discussions, participants, sessionOf, renderDoc, renderTabs, setTab, gotoDiscussion, toast, Diff, ME, Store, lang, likeHtml, likesOf, localSay };
   const P = window.RelayPanels(R);
   const renderLog = () => P.renderLog();
 
   /* ---------- events (delegated) ---------- */
   document.addEventListener('click', (e) => {
-    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-invite],[data-avatar],[data-new-room],[data-suggest],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],.chip,.tab');
-    if (!t0) { if (state.exportOpen) { state.exportOpen = false; renderExport(); } if (!e.target.closest('.pop') && state.openPop) { state.openPop = null; renderDoc(); } return; }
+    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-invite],[data-avatar],[data-new-room],[data-suggest],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],[data-page],[data-zoom],[data-lock],[data-open-unit],[data-add-issue],[data-pick],[data-modal-close],[data-overlay],[data-reset],[data-like],[data-open-disc],[data-compose-cancel],.chip,.tab');
+    if (!t0) { if (state.exportOpen) { state.exportOpen = false; renderViewer(); } if (!e.target.closest('.pop') && state.openPop) { state.openPop = null; renderDoc(); } return; }
     const d = t0.dataset;
     if (t0.classList.contains('tab')) { const tab = t0.id.replace('tab', '').toLowerCase(); setTab(tab); if (tab === 'disc') P.renderDisc(); return; }
     if (t0.hasAttribute('data-suggest')) return send(t('guide_suggest'));
     if (t0.classList.contains('chip')) return send(t0.textContent);
-    if (d.avatar) { state.landing.avatar = d.avatar; state.landing.name = $('#lName').value; return renderLanding(); }
-    if (t0.hasAttribute('data-new-room')) { state.landing.forceNew = true; state.landing.name = $('#lName').value; return renderLanding(); }
+    if (d.avatar) { state.landing.avatar = d.avatar; state.landing.name = $('#lName').value; return openJoinModal(state.landing.mode); }
+    if (t0.hasAttribute('data-modal-close')) { if (!state.landing.busy) closeModal(); return; }
+    if (t0.hasAttribute('data-overlay')) { if (e.target === t0 && !state.landing.busy && !(state.landing.mode === 'join' && !state.roomId)) closeModal(); return; }
+    if (t0.hasAttribute('data-reset')) { closeModal(); history.pushState(null, '', `/${location.search}`); state.roomId = null; return startRoom(); }
+    if (t0.hasAttribute('data-add-issue')) return openIssueModal();
+    if (d.pick) { const set = state.issueDraft.members; if (d.pick !== 'me') { if (set.has(d.pick)) set.delete(d.pick); else set.add(d.pick); } t0.classList.toggle('on', set.has(d.pick)); t0.setAttribute('aria-pressed', set.has(d.pick)); return; }
+    if (d.openUnit) { const u = state.units.find((x) => x.id === d.openUnit); if (u && u.live) return state.roomId ? showView('doc') : startRoom(); return toast(t('toast_only_first')); }
     if (d.lang) return setLang(d.lang);
-    if (t0.hasAttribute('data-home')) { location.href = `/${location.search}`; return; }
+    if (t0.hasAttribute('data-home')) return showView('home');
+    if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; try { localStorage.setItem('relay.private', state.myPrivate ? '1' : '0'); } catch (err) { /* fine */ } Store.setPresence({ private: state.myPrivate }); renderPresence(); renderComposer(); return; }
+    if (d.page) { state.page = Math.min(2, Math.max(1, state.page + Number(d.page))); renderViewer(); return gotoPage(state.page); }
+    if (d.zoom) { state.zoom = Math.min(130, Math.max(80, state.zoom + Number(d.zoom))); return renderDoc(); }
     if (t0.hasAttribute('data-bot')) return bringTeammate();
     if (t0.hasAttribute('data-invite')) return copyInvite();
     if (d.tabGo) { setTab(d.tabGo); return d.tabGo === 'log' ? renderLog() : P.renderDisc(); }
@@ -742,8 +876,11 @@
     }
     if (d.diff) { state.openPop = null; const bc = changeById(d.base); const base = d.base === 'seen' ? state.popMeta && state.popMeta.base : bc && bc.prev; state.showDiff[d.diff] = { label: d.label, base: base || latestChange(d.diff).prev }; return renderDoc(); }
     if (d.ask) { state.openPop = null; renderDoc(); if (state.viewing !== ME()) viewSession(ME()); state.ctx = d.ask; renderCtx(); $('#input').focus(); return; }
-    if (t0.hasAttribute('data-export-menu')) { state.exportOpen = !state.exportOpen; return renderExport(); }
+    if (t0.hasAttribute('data-export-menu')) { state.exportOpen = !state.exportOpen; return renderViewer(); }
     if (d.export) return doExport(d.export);
+    if (d.like) return toggleLike(d.like);
+    if (d.openDisc) return P.composeDiscussion(d.openDisc);
+    if (t0.hasAttribute('data-compose-cancel')) { state.draftDisc = null; renderDoc(); return P.renderDisc(); }
     if (d.edit) return startMyEdit(d.edit);
     if (t0.hasAttribute('data-save-edit')) return saveMyEdit();
     if (t0.hasAttribute('data-cancel-edit')) return cancelMyEdit();
@@ -754,6 +891,7 @@
   });
   document.addEventListener('click', () => { if (state.view === 'doc') dismissSeen(); });
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('#modalRoot').firstChild && !state.landing.busy && !(state.landing.mode === 'join' && !state.roomId)) return closeModal();
     if (state.myEdit && e.key === 'Escape') return cancelMyEdit();
     if (state.myEdit && (e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); return saveMyEdit(); }
     if (state.view === 'doc' && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key.length === 1 || e.key === 'Enter')) dismissSeen();
@@ -762,6 +900,9 @@
     const f = e.target;
     if (f.id === 'composer') { e.preventDefault(); const inp = $('#input'); const v = inp.value.trim(); if (!v || state.pending) return; inp.value = ''; inp.style.height = ''; send(v); }
     if (f.id === 'landForm') { e.preventDefault(); submitLanding(); }
+    if (f.id === 'issueForm') { e.preventDefault(); createIssue(); }
+    if (f.id === 'compose') { e.preventDefault(); P.openDiscussionFromDraft(); }
+    if (f.dataset.cmt) { e.preventDefault(); const v = f.querySelector('input').value.trim(); if (v) { f.querySelector('input').value = ''; P.comment(f.dataset.cmt, v); } }
   });
   document.addEventListener('change', (e) => {
     if (e.target.id === 'modelPick') { state.model = e.target.value; try { localStorage.setItem('relay.model', state.model); } catch (err) { /* private mode */ } }
@@ -794,13 +935,9 @@
   loadModels();
   (async () => {
     const rid = roomFromPath(); const saved = loadMe();
-    if (rid && saved && Store.configured()) {
-      state.me = saved; learn(saved.userId, saved.name, saved.avatar);
-      state.landing.busy = true; showView('landing');
-      try { await enterRoom(rid); return; }
-      catch (e) { state.landing.busy = false; state.landing.err = e.message === 'room_not_found' ? t('land_err_room') : t('err_generic', { err: e.message }); if (e.message === 'room_not_found') state.landing.forceNew = true; }
-    }
-    if (!Store.configured()) state.landing.err = t('land_err_conf');
-    showView('landing');
+    if (saved) { state.me = saved; learn(saved.userId, saved.name, saved.avatar); }
+    showView('home');
+    if (!Store.configured()) { state.landing.err = t('land_err_conf'); return openJoinModal('start'); }
+    if (rid) { if (saved) return joinRoom(rid); return openJoinModal('join'); }
   })();
 })();

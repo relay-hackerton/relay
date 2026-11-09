@@ -10,6 +10,7 @@ const { runAgent, validate, findContested } = await import('../api/_agent.js');
 const { runBot } = await import('../api/bot.js');
 const { runResolve } = await import('../api/_resolve.js');
 const { runEdit } = await import('../api/_edit.js');
+const { runDiscuss } = await import('../api/_discuss.js');
 
 const AUTO = 'Team invite: with contacts permission (Google · Slack), auto-invite members on the same domain. The permission screen can be skipped.';
 const MANUAL = 'Team invite: invite teammates directly by email or invite link.';
@@ -56,6 +57,7 @@ const reply = T.messages.at(-1); assert.equal(reply.meta.conflict.discussion_id,
 scripted.push((req) => { assert.match(req.system, /discussion #1 on s3/); const p = s3().paras; return { reply: 'ok', action: 'edit', sectionId: 's3', paras: [p[0], 'Team invite: something else.', p[2]], summary: 's', why: 'w', conflict: null, discussion: null }; });
 r = await runAgent({ roomId, userId: 'u_me', userName: 'Judge', text: 'Change invite again', lang: 'ko' }, deps);
 assert.equal(r.action, 'none'); assert.equal(s3().paras[1], MANUAL); assert.match(T.messages.at(-1).text, /토론 #1/);
+assert.equal(T.comments.at(-1).text, 'Change invite again');   // the frozen request became a comment
 
 // 6. tie until I vote, then resolve
 assert.equal((await runResolve({ roomId, discussionId: disc.id, userId: 'u_me', userName: 'Judge' }, deps)).status, 409);
@@ -73,6 +75,19 @@ assert.equal((await runEdit({ roomId, userId: 'u_me', userName: 'Judge', section
 r = await runEdit({ roomId, userId: 'u_me', userName: 'Judge', sectionId: 's1', paras: [...s1().paras, 'A new background line.'], rev: s1().rev, lang: 'en' }, deps);
 assert.equal(r.ok, true); assert.equal(s1().paras.length, 3); assert.equal(T.changes.at(-1).kind, 'human');
 assert.equal((await runEdit({ roomId, userId: 'bot_jieun', sectionId: 's1', paras: ['x'] }, deps)).status, 403);
+
+// 7b. a person opens a discussion; the agent drafts one on request; resolving an option without text asks the model
+scripted.push({ reply: 'I prepared a discussion on 6. Timeline.', action: 'discuss', sectionId: 's6', paras: null, summary: null, why: null, conflict: null, discussion: { title: 'Rollout size?', titleEn: 'Rollout size?', question: 'q', options: [{ label: '5%', labelEn: '5%', desc: '', text: '' }, { label: '10%', labelEn: '10%', desc: '', text: '' }, { label: '25%', labelEn: '25%', desc: '', text: '' }] } });
+r = await runAgent({ roomId, userId: 'u_me', userName: 'Judge', text: 'Open a discussion on the rollout size', lang: 'en' }, deps);
+assert.equal(r.action, 'discuss'); assert.equal(T.messages.at(-1).meta.compose.sectionId, 's6'); assert.equal(T.discussions.length, 1);
+r = await runDiscuss({ roomId, userId: 'u_me', userName: 'Judge', sectionId: 's6', title: 'Rollout size?', question: 'q', options: [{ label: '5% first' }, { label: '10% at once' }] }, deps);
+assert.equal(r.ok, true); assert.equal(r.n, 2);
+assert.equal(T.votes.filter((v) => v.discussion_id === r.id).length, 2);   // bots vote when they are in the room
+assert.equal((await runDiscuss({ roomId, userId: 'u_me', sectionId: 's6', title: 'x', options: [{ label: 'a' }, { label: 'b' }] }, deps)).body.error, 'exists');
+const s6 = () => T.sections.find((x) => x.id === 's6');
+scripted.push((req) => { assert.match(req.messages[0].content, /option A: 5% first/); return { reply: 'ok', action: 'edit', sectionId: 's6', paras: ['Design locked week 2 of Nov · build weeks 3–4 of Nov · 5% rollout week 1 of Dec · metrics review week 2 of Dec'], summary: 's', why: 'w', conflict: null, discussion: null }; });
+r = await runResolve({ roomId, discussionId: T.discussions[1].id, optionId: 'A', userId: 'u_me', userName: 'Judge', lang: 'en' }, deps);
+assert.equal(r.result, 'A'); assert.match(s6().paras[0], /5% rollout/); assert.match(T.sections.find((x) => x.id === 's8').paras.at(-1), /Discussion #2 · Rollout size\?: concluded as option A 5% first/);
 
 // 8. call limit
 T.rooms[0].calls = 30;
