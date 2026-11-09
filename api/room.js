@@ -1,4 +1,6 @@
-/* POST /api/room { document? } → { roomId }. An empty request starts the demo. */
+/* POST /api/room { document? | shared? } → { roomId }.
+   { shared: true } → the one onboarding room everybody opens from the library (created once, same link for all).
+   An empty request starts a fresh copy of the demo; { document } imports a file. */
 import { db, handler, newId, shortId, uuid } from './_lib.js';
 import { DOC_TITLE, SECTIONS, HISTORY } from './_seed.js';
 
@@ -39,8 +41,19 @@ function insertSections(d, roomId, sections, last = {}) {
   })));
 }
 
-export async function createRoom(d = db, document = undefined) {
-  const roomId = shortId(6);
+export const SHARED_ROOM = 'onboarding';
+
+/* the library's onboarding document: one room for everyone, seeded on first use */
+export async function sharedRoom(d = db) {
+  const found = await d.select('rooms', `id=${d.eq(SHARED_ROOM)}&select=id`);
+  if (found && found.length) return SHARED_ROOM;
+  try { await createRoom(d, undefined, SHARED_ROOM); }
+  catch (error) { if (!/23505|duplicate|409/.test(String(error.message))) throw error; }   // someone else created it a moment ago
+  return SHARED_ROOM;
+}
+
+export async function createRoom(d = db, document = undefined, id = undefined) {
+  const roomId = id || shortId(6);
   if (document) {
     await d.insert('rooms', [{ id: roomId, title: document.title }]);
     try {
@@ -73,7 +86,8 @@ export async function createRoom(d = db, document = undefined) {
   return roomId;
 }
 
-export default handler(async ({ document }) => {
+export default handler(async ({ document, shared }) => {
+  if (shared === true) return { roomId: await sharedRoom() };
   if (document === undefined) return { roomId: await createRoom() };
   const invalid = { status: 400, body: { error: 'invalid_document' } };
   const title = typeof document?.title === 'string' ? document.title.trim() : '';

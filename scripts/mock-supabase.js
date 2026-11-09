@@ -5,6 +5,7 @@
     constructor(table) { this.q = { table, filters: [], order: null, limit: null, single: false }; }
     select() { return this; }
     eq(k, v) { this.q.filters.push([k, v]); return this; }
+    in(k, vs) { this.q.filters.push([k, vs.map(String)]); return this; }
     order(col, opt) { this.q.order = [col, opt && opt.ascending === false ? 'desc' : 'asc']; return this; }
     limit(n) { this.q.limit = n; return this; }
     maybeSingle() { this.q.single = true; return this; }

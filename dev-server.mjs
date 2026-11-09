@@ -49,7 +49,7 @@ async function mockRoute(req, res, url) {
   }
   const b = await body(req);
   if (url.pathname === '/mock/query') {
-    let rows = m.T[b.table].filter((r) => b.filters.every(([k, v]) => String(r[k]) === String(v)));
+    let rows = m.T[b.table].filter((r) => b.filters.every(([k, v]) => (Array.isArray(v) ? v.includes(String(r[k])) : String(r[k]) === String(v))));
     if (b.order) { const [c, d] = b.order; rows = [...rows].sort((x, y) => (x[c] > y[c] ? 1 : x[c] < y[c] ? -1 : 0) * (d === 'desc' ? -1 : 1)); }
     if (b.limit) rows = rows.slice(0, b.limit);
     return json(res, { data: b.single ? rows[0] || null : rows, error: null });

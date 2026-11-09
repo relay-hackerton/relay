@@ -51,7 +51,7 @@
   /* ---------- state ---------- */
   const state = {
     view: 'home', tab: 'doc', me: null, roomId: null, room: null, viewing: null, landing: { busy: false, err: '' },
-    importedRooms: loadImportedRooms(),
+    importedRooms: [],
     zoom: 100, page: 1, units: clone(LIBRARY).map((u) => (u.live ? { ...u, title: DOC_EN.title } : u)), issueDraft: null,
     myPrivate: false,   // per visit: a session starts public
     sections: [], changeList: [], messages: [], discRows: [], votes: [], presence: [],
@@ -717,17 +717,15 @@
     }
   }
 
-  function loadImportedRooms() {
-    try {
-      const rooms = JSON.parse(localStorage.getItem('relay.importedRooms') || '[]');
-      return Array.isArray(rooms) ? rooms : [];
-    } catch (e) { return []; }
-  }
-  function rememberImportedRoom() {
-    const roomId = state.roomId;
-    const unit = { id: roomId, roomId, title: state.room.title, editedMin: 0, accent: '#2F6BFF', members: ['me'] };
-    state.importedRooms = [unit, ...state.importedRooms.filter((u) => u.roomId !== roomId)];
-    try { localStorage.setItem('relay.importedRooms', JSON.stringify(state.importedRooms)); } catch (e) { /* private mode */ }
+  /* imported documents come from the database, so every browser sees the same list and the same links */
+  const ACCENTS = ['#2F6BFF', '#7C5CFF', '#16A26A', '#D4860A', '#D9503B', '#0EA5A4'];
+  let libraryKey = '';
+  async function loadLibrary() {
+    if (!Store.configured()) return;
+    let rows; try { rows = await Store.importedRooms(); } catch (e) { return; }
+    const key = JSON.stringify(rows.map((r) => [r.id, r.title]));
+    state.importedRooms = rows.map((r, i) => ({ id: `room-${r.id}`, roomId: r.id, title: r.title, editedMin: (Date.now() - new Date(r.created_at)) / 60000, accent: ACCENTS[i % ACCENTS.length], members: [] }));
+    if (key !== libraryKey) { libraryKey = key; if (state.view === 'home') renderHome(); }
   }
 
   /* ---------- who you are: a nickname, unique across Relay, asked once and kept on this browser ---------- */
@@ -769,6 +767,17 @@
     if (state.roomId) return location.reload();   // another room: a clean page keeps the two rooms' state apart
     return joinRoom(rid);
   }
+  /* the library card: the shared onboarding room, the same link for everyone */
+  async function openShared() {
+    if (!state.me) return openNameModal();
+    if (state.creating) return; state.creating = true;
+    try {
+      const rid = await Store.sharedRoom();
+      if (state.roomId && state.roomId !== rid) { location.assign(`/r/${rid}${location.search}`); return; }
+      await go(`/r/${rid}`);
+    } catch (e) { toast(t('err_generic', { err: e.message })); }
+    state.creating = false;
+  }
   async function startRoom() {
     if (!state.me) return openNameModal();
     if (state.creating) return; state.creating = true; toast(t('land_busy_start'));
@@ -805,7 +814,6 @@
     state.me = me; saveMe(me); learn(me.userId, me.name, me.avatar);
     state.roomId = rid; state.viewing = ME();
     applySnapshot(data, true);
-    if (importedRoom()) rememberImportedRoom();
     showView('doc');
   }
   /* load a full snapshot: on join, and again after a dropped connection (sections that changed meanwhile are marked as new) */
@@ -901,7 +909,7 @@
     $$('.work-only').forEach((el) => { el.hidden = v !== 'doc'; });
     $$('.home-only').forEach((el) => { el.hidden = v !== 'home'; });
     document.body.classList.toggle('on-home', v === 'home');
-    if (v === 'home') { Store.setPresence({ sectionId: null }); return renderHome(); }
+    if (v === 'home') { Store.setPresence({ sectionId: null }); renderHome(); loadLibrary(); return; }
     Store.setPresence({ private: state.myPrivate });
     renderPresence(); renderChatHead(); renderComposer(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
     setTimeout(trackMySection, 600);
@@ -933,9 +941,9 @@
     if (d.pick) { const set = state.issueDraft.members; if (d.pick !== 'me') { if (set.has(d.pick)) set.delete(d.pick); else set.add(d.pick); } t0.classList.toggle('on', set.has(d.pick)); t0.setAttribute('aria-pressed', set.has(d.pick)); return; }
     if (d.openUnit) {
       const imported = state.importedRooms.find((u) => u.id === d.openUnit);
-      if (imported) return imported.roomId === state.roomId ? go(`/r/${imported.roomId}`) : location.assign(`/r/${imported.roomId}${location.search}`);
+      if (imported) return state.roomId && imported.roomId !== state.roomId ? location.assign(`/r/${imported.roomId}${location.search}`) : go(`/r/${imported.roomId}`);
       const unit = state.units.find((u) => u.id === d.openUnit);
-      if (unit?.live) return state.roomId && !importedRoom() ? go(`/r/${state.roomId}`) : startRoom();
+      if (unit?.live) return openShared();
       return toast(t('toast_only_first'));
     }
     if (t0.hasAttribute('data-home')) return go('/');
@@ -1019,7 +1027,7 @@
   setAgent('idle', t('agent_idle'));
   loadModels();
   (async () => {
-    try { ['relay.private'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
+    try { ['relay.private', 'relay.importedRooms'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
     const rid = roomFromPath();
     showView('home');
     if (!Store.configured()) return toast(t('land_err_conf'));

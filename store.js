@@ -191,6 +191,15 @@ window.Store = (() => {
   /* a direct edit of one section; rev is the version I started from */
   const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, userId: me.userId, userName: me.name, sectionId, paras, rev, lang });
   const profile = (body) => api('profile', body);
+  const sharedRoom = async () => { const r = await api('room', { shared: true }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
+  /* documents imported by anyone: their first section is import-1 */
+  async function importedRooms() {
+    need();
+    const s = await sb.from('sections').select('room_id').eq('id', 'import-1').limit(40);
+    if (s.error || !s.data.length) return [];
+    const r = await sb.from('rooms').select('id,title,created_at').in('id', s.data.map((x) => x.room_id)).order('created_at', { ascending: false });
+    return r.error ? [] : r.data;
+  }
   const createRoom = async (document) => { const r = await api('room', { document }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
 
   let lastTrack = '';
@@ -205,5 +214,5 @@ window.Store = (() => {
     }
   }
 
-  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, profile, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
+  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, profile, setPresence, createRoom, sharedRoom, importedRooms, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
 })();
