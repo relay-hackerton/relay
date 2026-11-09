@@ -586,7 +586,8 @@
     }
     $$('#docPane [data-readers]').forEach((el) => {
       const readers = [...(reading.get(el.dataset.readers) || [])];
-      const html = readers.map((id) => avatar(id)).join(''); if (readersHtml.get(el) !== html) { readersHtml.set(el, html); patch(el, html); }
+      const html = readers.map((id) => `<span class="reader" style="--c:${member(id).color}" title="${esc(t('reading_here', { name: name(id) }))}"><b>${esc(name(id))}</b>${avatar(id)}</span>`).join('');
+      if (readersHtml.get(el) !== html) { readersHtml.set(el, html); patch(el, html); }
     });
   }
 
@@ -645,7 +646,7 @@
   const ago = (mins) => mins < 1 ? t('ago_now') : mins < 60 ? t('ago_min', { n: Math.round(mins) }) : mins < 1440 ? t('ago_h', { n: Math.round(mins / 60) }) : t('ago_d', { n: Math.round(mins / 1440) });
   function renderHome() {
     const sr = state.sharedRoom;
-    const shared = { id: 'onboarding', title: sr ? sr.title : DOC.title, firstPage: sr && sr.firstPage, accent: '#2F6BFF', live: true };
+    const shared = { id: 'onboarding', title: sr ? sr.title : DOC.title, firstPage: sr && sr.firstPage, editedMin: sr ? sr.editedMin : undefined, accent: '#2F6BFF', live: true };
     patch($('#home'), `
       <div class="home-main">
         <div class="home-h"><h1>${t('home_title')}</h1><button class="btn primary" data-add-issue>${icon('plus')}${t('add_issue')}</button></div>
@@ -725,7 +726,7 @@
     const key = JSON.stringify(rows.map((r) => [r.id, r.title, r.firstPage.length]));
     if (first) libraryKey = '';
     const shared = rows.find((r) => r.kind === 'shared');
-    state.sharedRoom = shared ? { roomId: shared.id, title: shared.title, firstPage: shared.firstPage } : null;
+    state.sharedRoom = shared ? { roomId: shared.id, title: shared.title, firstPage: shared.firstPage, editedMin: (Date.now() - new Date(shared.created_at)) / 60000 } : null;
     state.importedRooms = rows.filter((r) => r.kind !== 'shared').map((r, i) => ({ id: `room-${r.id}`, roomId: r.id, title: r.title, firstPage: r.firstPage, editedMin: (Date.now() - new Date(r.created_at)) / 60000, accent: ACCENTS[(i + 1) % ACCENTS.length], members: [] }));
     if (key !== libraryKey) { libraryKey = key; if (state.view === 'home') renderHome(); }
   }
@@ -916,15 +917,25 @@
     const edits = (l) => JSON.stringify(l.filter((p) => p.userId !== ME()).map((p) => `${p.userId}:${p.editing || ''}`).sort());   // my own editing state is already local
     const drafts = (l) => Object.fromEntries(l.filter((p) => p.editing && p.userId !== ME()).map((p) => [p.editing, JSON.stringify(p.draft || null)]));
     const e0 = edits(state.presence), d0 = drafts(state.presence);
-    const who = (l) => JSON.stringify(l.map((p) => `${p.userId}:${p.name}:${p.avatar}:${p.private ? 1 : 0}`).sort());
+    const who = (l) => JSON.stringify(l.map((p) => `${p.userId}:${p.name}:${p.avatar}:${p.private ? 1 : 0}:${p.editing || p.sectionId || ""}`).sort());
     const w0 = who(state.presence);
     state.presence = list; list.forEach((p) => learn(p.userId, p.name, p.avatar));
+    announceArrivals(list);
     if (w0 !== who(list)) { renderPresence(); if (state.viewing !== ME()) renderChat(); }
     if (e0 !== edits(list)) return renderDoc();
     const d1 = drafts(list);
     Object.keys(d1).forEach((sid) => { if (d1[sid] !== d0[sid]) patchDraft(sid); });
     renderReadingAvatars();
   });
+  /* someone opens the document I am in: a short notice (not for the people already here when I arrived) */
+  let seenHere = null, seenRoom = null, enteredAt = 0;
+  function announceArrivals(list) {
+    if (state.view !== 'doc' || !state.roomId) return;
+    const ids = new Set(list.map((p) => p.userId).filter((id) => id && id !== ME() && !id.startsWith('bot_')));
+    if (seenRoom !== state.roomId) { seenRoom = state.roomId; seenHere = ids; enteredAt = Date.now(); return; }
+    if (Date.now() - enteredAt > 2500) [...ids].filter((id) => !seenHere.has(id)).forEach((id) => toast(t('joined_doc', { name: name(id) })));
+    ids.forEach((id) => seenHere.add(id));
+  }
   setInterval(() => { if (state.view === 'doc') renderAgent(); }, 5000);   // a stuck lock (crashed function) times out visually
 
   /* A check is opening the document. Keep the previous visit as the cutoff for this visit. */
