@@ -305,6 +305,14 @@ POST /api/bot     { roomId, lang }                            → { ok: true }  
 - OpenAI는 Responses API(`/v1/responses`)에 함수 하나를 강제 호출한다(`tool_choice`). GPT-6 계열은 Chat Completions에서 도구 호출이 제한돼서다. 기본 모델 `gpt-6-luna`, `OPENAI_REASONING=low`.
 - 프롬프트, 도구 스키마, 검증은 두 제공자가 같이 쓴다.
 
+**확정본 UI 전체 복원 (11/9 12:00 결정)**
+
+- 화면은 확정본과 같은 마크업·스타일로 되돌렸다. 버렸던 홈 라이브러리, 페이지·확대 바, 세션 공개/비공개, 좋아요, 사람이 여는 토론과 댓글, 체험 가이드 모달을 실제 데이터로 살렸다.
+- 새 테이블 `reactions`(👍), `comments`(토론 댓글)는 브라우저가 직접 쓴다(봇 아이디는 정책으로 막음). 공개/비공개는 presence로 공유한다.
+- `POST /api/discuss`: 사람이 토론을 연다. 채팅에서 토론을 열어 달라고 하면 에이전트가 `action: "discuss"`로 초안을 만들고, 화면이 작성 폼을 채워 연다. 토론 중인 섹션에 대한 요청은 그 토론의 댓글이 된다.
+- 결론 선택지에 바로 쓸 문단이 없으면(사람이 연 토론) 결론 반영 때 모델이 그 섹션을 결론대로 고쳐 쓴다.
+- MVP용으로 만들었던 이름 입력 페이지, 오른쪽 안내 카드, 상단 버튼은 없앴다. 이름은 확정본 모달 스타일로 묻고, 팀원 봇과 초대 링크는 환영 메시지 안에 둔다.
+
 **모델 선택 (11/9 추가)**
 
 - `api/_models.js`가 키가 있는 제공자의 모델만 목록으로 만든다. 기본 목록: Claude Sonnet 5.5·Haiku 5.5, GPT-6 Luna·Astra, Codex(GPT-5.3). `OPENAI_MODELS`/`ANTHROPIC_MODELS`/`DEFAULT_MODEL`로 바꾼다.
