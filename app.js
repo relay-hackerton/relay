@@ -70,6 +70,7 @@
   const changeById = (cid) => state.changeList.find((c) => c.id === cid);
   const latestChange = (sid) => { const s = secById(sid); const byId = s && s.lastChangeId && changeById(s.lastChangeId); if (byId) return byId; const l = changesOf(sid); return l.length ? l[l.length - 1] : null; };
   const latestChangeTime = () => state.changeList.reduce((a, c) => (!a || c.at > a ? c.at : a), null);
+  const draftOf = (sid) => { const p = state.presence.find((x) => x.userId !== ME() && x.editing === sid && Array.isArray(x.draft)); return p ? p.draft : null; };
   const humanEditing = (sid) => { const p = state.presence.find((x) => x.userId !== ME() && x.editing === sid); return p ? p.userId : null; };
   const openDiscRow = (sid) => state.discRows.find((d) => d.section_id === sid && d.status === 'open');
   function participants() {
@@ -363,7 +364,7 @@
     if (state.view !== 'doc') return;
     if (state.animating) { state.docDirty = true; return; }
     const keep = state.myEdit && $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`);
-    const keepHtml = keep ? keep.innerHTML : null; const hadFocus = keep && document.activeElement === keep;
+    const keepHtml = keep ? keep.innerHTML : null; const hadFocus = keep && document.activeElement === keep; const caret = hadFocus ? saveCaret(keep) : null;
     const title = (state.room && state.room.title) || DOC.title;
     $('#docTitle').textContent = title;
     const p1 = state.sections.filter((s) => (s.page || 1) === 1), p2 = state.sections.filter((s) => s.page === 2);
@@ -372,8 +373,22 @@
         <article class="paper"><h1>${esc(title)}</h1><p class="lede">${esc(DOC.lede)}</p>${p1.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(DOC.footer)}</span><span>01 / 02</span></div></article>
         <article class="paper">${p2.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(DOC.footer)}</span><span>02 / 02</span></div></article>
       </div>`;
-    if (keepHtml != null) { const el = $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`); if (el) { el.innerHTML = keepHtml; if (hadFocus) el.focus(); } }
+    if (keepHtml != null) { const el = $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`); if (el) { el.innerHTML = keepHtml; if (hadFocus) { el.focus(); if (caret != null) restoreCaret(el, caret); } } }
     renderDocMeta(); renderCursors();
+  }
+  /* keep my caret where it was when the document re-renders under me */
+  function saveCaret(root) {
+    const sel = window.getSelection(); if (!sel || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0); if (!root.contains(r.startContainer)) return null;
+    const pre = r.cloneRange(); pre.selectNodeContents(root); pre.setEnd(r.startContainer, r.startOffset);
+    return pre.toString().length;
+  }
+  function restoreCaret(root, pos) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); let node, left = pos, last = null;
+    while ((node = walker.nextNode())) { last = node; if (left <= node.length) break; left -= node.length; }
+    if (!last) return;
+    const r = document.createRange(); r.setStart(node || last, node ? left : last.length); r.collapse(true);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   }
   function renderSection(sec) {
     const ch = latestChange(sec.id);
@@ -387,6 +402,7 @@
     if (mine) body = `<div class="sec-body editable" contenteditable="true" spellcheck="false" tabindex="0">${sec.paras.map((p) => `<p class="${sec.steps ? 'step' : ''}">${esc(p)}</p>`).join('')}</div>${sec.footnote ? `<div class="sec-body"><p class="fn">${esc(sec.footnote)}</p></div>` : ''}`;
     else {
       if (diff) inner = Diff.lineDiff(diff.base, sec.paras).map((r) => r.t === 'eq' ? para(r.text, sec) : `<p class="${r.t}">${Diff.inlineHtml(r.text, r.pair, r.t, esc)}</p>`).join('');
+      else if (hed && draftOf(sec.id)) inner = draftHtml(sec, hed);
       else inner = sec.paras.map((p, i) => para(p, sec, unread && changedIdx.has(i))).join('');
       body = `<div class="sec-body">${inner}${sec.footnote ? `<p class="fn">${esc(sec.footnote)}</p>` : ''}</div>`;
     }
@@ -414,6 +430,16 @@
         ${body}
         ${state.openPop === sec.id && ch ? renderPop(sec.id, ch) : ''}
       </section>`;
+  }
+  /* someone else's unsaved edit, shown live: changed lines tinted, their caret at the end */
+  function draftHtml(sec, by) {
+    const d = draftOf(sec.id) || sec.paras;
+    return d.map((p, i) => `<p class="${sec.steps ? 'step' : ''} ${sec.paras.includes(p) ? '' : 'draft-line'}" style="--c:${member(by).color}">${esc(p)}${i === d.length - 1 ? '<span class="draft-caret" aria-hidden="true"></span>' : ''}</p>`).join('');
+  }
+  function patchDraft(sid) {
+    const el = $(`.sec[data-id="${sid}"] .sec-body`); const by = humanEditing(sid);
+    if (!el || !by || state.myEdit === sid) return;
+    const fn = el.querySelector('p.fn'); el.innerHTML = draftHtml(secById(sid), by) + (fn ? fn.outerHTML : '');
   }
   function para(text, sec, hl = false) {
     const m = text.match(/^([^:]{2,24}):\s(.*)$/);
@@ -500,7 +526,13 @@
     Store.setPresence({ editing: id, sectionId: id }); renderDoc();
     const body = $(`.sec[data-id="${id}"] .sec-body.editable`); if (body) body.focus();
   }
-  function cancelMyEdit() { state.myEdit = null; Store.setPresence({ editing: null }); renderDoc(); }
+  function cancelMyEdit() { state.myEdit = null; Store.setPresence({ editing: null, draft: null }); renderDoc(); }
+  const editableParas = (el) => Array.from(el.childNodes).map((n) => (n.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let draftTimer = null;
+  document.addEventListener('input', (e) => {
+    const el = e.target.closest && e.target.closest('.sec-body.editable'); if (!el || !state.myEdit) return;
+    clearTimeout(draftTimer); draftTimer = setTimeout(() => Store.setPresence({ draft: editableParas(el).slice(0, 30).map((p) => p.slice(0, 1200)) }), 250);
+  });
   async function saveMyEdit() {
     const id = state.myEdit; if (!id || state.saving) return;
     const body = $(`.sec[data-id="${id}"] .sec-body.editable`);
@@ -508,7 +540,7 @@
     if (!paras.length || JSON.stringify(paras) === JSON.stringify(secById(id).paras)) return cancelMyEdit();
     state.saving = true; renderDoc();
     let r; try { r = await Store.edit(id, paras, state.editRev, { lang }); } catch (e) { r = { error: e.message }; }
-    state.saving = false; state.myEdit = null; Store.setPresence({ editing: null });
+    state.saving = false; state.myEdit = null; Store.setPresence({ editing: null, draft: null });
     renderDoc();
     if (r && r.error) toast(r.error === 'stale' ? t('err_stale') : r.error === 'frozen' ? t('err_frozen') : t('err_generic', { err: r.error }));
   }
@@ -557,7 +589,14 @@
   /* ---------- joining a room and live updates ---------- */
   async function enterRoom(rid) {
     const data = await Store.join(rid, state.me);
-    state.roomId = rid; state.room = data.room; state.viewing = ME();
+    state.roomId = rid; state.viewing = ME();
+    applySnapshot(data, true);
+    showView('doc');
+  }
+  /* load a full snapshot: on join, and again after a dropped connection (sections that changed meanwhile are marked as new) */
+  function applySnapshot(data, initial) {
+    const before = initial ? null : Object.fromEntries(state.sections.map((s) => [s.id, JSON.stringify(s.paras)]));
+    state.room = data.room;
     state.sections = data.sections.map(normSection);
     state.changeList = data.changes.map(normChange);
     state.messages = data.messages.map(normMessage);
@@ -566,13 +605,25 @@
     state.changeList.forEach((c) => learn(c.by, c.byName));
     state.votes.forEach((v) => learn(v.user_id, v.user_name));
     state.presence.forEach((p) => learn(p.userId, p.name, p.avatar));
-    state.sections.forEach((s) => {
-      const c = latestChange(s.id);
-      const fresh = c && c.by !== ME() && Date.now() - c.at < RECENT_CHANGE_MS;
-      state.lastSeen[s.id] = clone(fresh ? c.prev : s.paras); if (fresh) state.unread.add(s.id);
-    });
-    showView('doc');
+    if (initial) {
+      state.sections.forEach((s) => {
+        const c = latestChange(s.id);
+        const fresh = c && c.by !== ME() && Date.now() - c.at < RECENT_CHANGE_MS;
+        state.lastSeen[s.id] = clone(fresh ? c.prev : s.paras); if (fresh) state.unread.add(s.id);
+      });
+      return;
+    }
+    state.sections.forEach((s) => { if (before[s.id] !== JSON.stringify(s.paras) && (latestChange(s.id) || {}).by !== ME()) state.unread.add(s.id); });
+    renderPresence(); renderGuide(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderHeaderActions(); renderAgent(); renderDoc();
   }
+  let resyncing = false;
+  Store.on('resync', async (why) => {
+    if (state.view !== 'doc' || resyncing) return;
+    resyncing = true;
+    try { applySnapshot(await Store.snapshot(), false); console.info('resynced', why); } catch (e) { console.warn('resync failed', e); }
+    resyncing = false;
+  });
+  Store.on('status', (st) => { document.body.classList.toggle('offline', st === 'offline'); if (st === 'offline') toast(t('offline')); });
   Store.on('sections', ({ row }) => {
     if (!row || row.room_id !== state.roomId) return;
     const next = normSection(row); const old = secById(next.id); const prev = old ? clone(old.paras) : [];
@@ -592,7 +643,16 @@
     P.renderDisc();
   });
   Store.on('room', ({ row }) => { if (!row) return; const wasBots = state.room && state.room.bots_on; state.room = row; renderAgent(); if (wasBots !== row.bots_on) { renderPresence(); renderHeaderActions(); } renderCursors(); });
-  Store.on('presence', (list) => { const before = JSON.stringify(state.presence.map((p) => p.editing || null)); state.presence = list; list.forEach((p) => learn(p.userId, p.name, p.avatar)); renderPresence(); if (before !== JSON.stringify(list.map((p) => p.editing || null))) renderDoc(); else renderCursors(); });
+  Store.on('presence', (list) => {
+    const edits = (l) => JSON.stringify(l.filter((p) => p.userId !== ME()).map((p) => `${p.userId}:${p.editing || ''}`).sort());   // my own editing state is already local
+    const drafts = (l) => Object.fromEntries(l.filter((p) => p.editing && p.userId !== ME()).map((p) => [p.editing, JSON.stringify(p.draft || null)]));
+    const e0 = edits(state.presence), d0 = drafts(state.presence);
+    state.presence = list; list.forEach((p) => learn(p.userId, p.name, p.avatar)); renderPresence();
+    if (e0 !== edits(list)) return renderDoc();
+    const d1 = drafts(list);
+    Object.keys(d1).forEach((sid) => { if (d1[sid] !== d0[sid]) patchDraft(sid); });
+    renderCursors();
+  });
   setInterval(() => { if (state.view === 'doc') renderAgent(); }, 5000);   // a stuck lock (crashed function) times out visually
 
   /* ---------- views ---------- */

@@ -39,13 +39,26 @@ window.Store = (() => {
       });
     });
     channel.on('presence', { event: 'sync' }, () => emit('presence', presenceList()));
+    let joined = false, lost = false;
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, 6000);
       channel.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') { clearTimeout(timer); try { await channel.track(presence); } catch (e) { console.error(e); } resolve(); }
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { clearTimeout(timer); console.warn('realtime', status); resolve(); }
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(timer); try { await channel.track(presence); } catch (e) { console.error(e); }
+          if (joined && lost) { lost = false; emit('status', 'live'); emit('resync', 'reconnected'); }   // events may have been missed while away
+          joined = true; resolve();
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { clearTimeout(timer); console.warn('realtime', status); if (joined) { lost = true; emit('status', 'offline'); } resolve(); }
       });
     });
+    const snap = await snapshot();
+    setTimeout(() => { buffering = false; const b = buffer; buffer = []; b.forEach(([k, ev]) => emit(k, ev)); }, 0);
+    return snap;
+  }
+
+  /* the whole room as it is now; used on join and to catch up after a dropped connection */
+  async function snapshot() {
+    const id = roomId;
     const q = (table) => sb.from(table).select('*').eq('room_id', id);
     const [room, sections, changes, messages, discussions, votes] = await Promise.all([
       sb.from('rooms').select('*').eq('id', id).maybeSingle(),
@@ -58,9 +71,17 @@ window.Store = (() => {
     const err = [room, sections, changes, messages, discussions, votes].find((x) => x.error);
     if (err) throw new Error(err.error.message);
     if (!room.data) throw new Error('room_not_found');
-    setTimeout(() => { buffering = false; const b = buffer; buffer = []; b.forEach(([k, ev]) => emit(k, ev)); }, 0);
     return { room: room.data, sections: sections.data, changes: changes.data, messages: messages.data, discussions: discussions.data, votes: votes.data, presence: presenceList() };
   }
+
+  /* coming back to a tab that was hidden for a while: catch up in case the socket slept */
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (roomId && hiddenAt && Date.now() - hiddenAt > 20000) emit('resync', 'visible');
+    hiddenAt = 0;
+  });
+  window.addEventListener('online', () => { if (roomId) emit('resync', 'online'); });
 
   /* my message → messages, then /api/agent; while another request holds the agent, retry every 2 s */
   async function say(text, { lang = 'en', onQueued } = {}) {
@@ -107,5 +128,5 @@ window.Store = (() => {
     lastTrack = key; channel.track(presence).catch(() => {});
   }
 
-  return { join, on, say, vote, resolve, bot, edit, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId };
+  return { join, snapshot, on, say, vote, resolve, bot, edit, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId };
 })();

@@ -23,6 +23,7 @@
         this.subs.filter((s) => s.table === ev.table).forEach((s) => s.cb({ eventType: ev.eventType, new: ev.row, old: ev.row }));
       };
       this.es.onopen = () => cb('SUBSCRIBED');
+      this.es.onerror = () => cb('CLOSED');
       return this;
     }
     track(state) { return post('/mock/presence', { room: this.room, key: this.key, state }); }
