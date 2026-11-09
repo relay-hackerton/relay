@@ -1,0 +1,10 @@
+{
+  "name": "relay-team-agent",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "dev": "node dev-server.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}

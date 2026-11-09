@@ -1,0 +1,145 @@
+/* Prompt, tool schemas and the Anthropic Messages API call for the team agent. English prompt; reply language follows `lang`. */
+import { hhmm } from './_lib.js';
+
+export const MODEL = () => process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+
+const str = (description) => ({ type: 'string', description });
+const nstr = (description) => ({ type: ['string', 'null'], description });
+
+const OPTION = {
+  type: 'object', required: ['label', 'labelEn', 'desc', 'text'],
+  properties: {
+    label: str('Short option name, reply language, under 6 words'),
+    labelEn: str('Same option name in English'),
+    desc: str('One short line on what this option means, reply language'),
+    text: str('The complete replacement for the contested paragraph, English only'),
+  },
+};
+const DISCUSSION = {
+  type: 'object', required: ['title', 'titleEn', 'question', 'options'],
+  properties: {
+    title: str('Neutral discussion title, reply language, e.g. "Team invite: automatic or manual?"'),
+    titleEn: str('Same title in English'),
+    question: str('One or two sentences stating both positions and what to decide, reply language'),
+    options: { type: 'array', minItems: 3, maxItems: 3, items: OPTION, description: 'Exactly 3: keep their version, apply this request, a middle ground' },
+  },
+};
+
+export const RESPOND_TOOL = {
+  name: 'respond',
+  description: 'Reply to the requester and, when needed, give the edit to apply to the shared document.',
+  input_schema: {
+    type: 'object', required: ['reply', 'action', 'sectionId', 'paras', 'summary', 'why', 'conflict', 'discussion'],
+    properties: {
+      reply: str('Message to the requester in the reply language. Plain text, no markdown.'),
+      action: { type: 'string', enum: ['edit', 'clarify', 'none'] },
+      sectionId: nstr('Section to edit (e.g. "s3") when action is "edit", else null'),
+      paras: { type: ['array', 'null'], items: { type: 'string' }, description: 'Complete new paragraph list of that section, English only; null unless editing' },
+      summary: nstr('What changed, under 12 words, reply language; null unless editing'),
+      why: nstr("The requester's reason, under 15 words, reply language; null unless editing"),
+      conflict: {
+        type: ['object', 'null'], required: ['changeId', 'note'],
+        properties: { changeId: str('id of the recent change this edit reverses'), note: str('One sentence, reply language: who changed it, at what time, and why') },
+      },
+      discussion: { ...DISCUSSION, type: ['object', 'null'] },
+    },
+  },
+};
+export const DRAFT_TOOL = {
+  name: 'draft_discussion',
+  description: 'Draft a team discussion for two edits that disagree on the same paragraph.',
+  input_schema: { type: 'object', required: ['note', 'discussion'], properties: { note: str('One sentence, reply language: who changed the paragraph earlier, at what time, and why'), discussion: DISCUSSION } },
+};
+
+const langName = (lang) => (lang === 'ko' ? 'Korean' : 'English');
+
+function docBlock(sections) {
+  return sections.map((s) => `[${s.id}] ${s.num}. ${s.title}${s.steps ? ' (flow steps)' : ''}\n${s.paras.map((p, i) => `  (${i}) ${p}`).join('\n')}${s.footnote ? `\n  footnote: ${s.footnote}` : ''}`).join('\n');
+}
+function changesBlock(changes) {
+  if (!changes.length) return 'none';
+  return changes.map((c) => `- ${c.id} · ${c.section_id} · ${hhmm(c.created_at)} · by ${c.by_name}${c.kind === 'discussion' ? ' (discussion result)' : ''}\n  summary: ${c.summary || ''}\n  why: ${c.why || ''}\n  before: ${JSON.stringify(c.prev)}\n  after: ${JSON.stringify(c.next)}`).join('\n');
+}
+function discBlock(discs) {
+  if (!discs.length) return 'none';
+  return discs.map((d) => `- discussion #${d.n} on ${d.section_id || 'whole document'}: ${d.title_en || d.title}`).join('\n');
+}
+
+export function systemPrompt({ sections, recent, openDiscs, userName, lang }) {
+  return `You are the team agent in Relay. Several teammates each talk to you in their own session, and you all share one product spec. You edit the spec on their behalf; every edit is shown to the whole team with who asked and why.
+
+Requester: ${userName}. Reply language: ${langName(lang)}.
+
+RULES
+1. Edit at most one section per request. Return that section's complete paragraph list in "paras": copy unchanged paragraphs exactly, change only what the request needs, add at most 3 paragraphs. Keep the "Label: text" style where it is used. Never change section titles or numbers.
+2. The document is English. "paras", option "text", "titleEn" and "labelEn" are always English, even when the requester writes in Korean.
+3. "reply", "summary", "why", the discussion "title", "question", option "label" and "desc", and the conflict "note" are in the reply language (${langName(lang)}). "reply" is one or two short sentences (up to four when you summarize), plain text, no markdown. When you edit, say what you changed and name the section like "3. Core features".
+4. action: "edit" when you change the document; "clarify" when the request is ambiguous and you must ask one question first (no edit); "none" when you answer without editing (for example "what changed?", which you answer from RECENT CHANGES).
+5. Conflicts: if your edit reverses or contradicts a paragraph that a different person changed in RECENT CHANGES, still apply the edit, fill "conflict" with that change's id and a one-sentence note (who, at what time, their reason), and draft "discussion": a neutral title, a question stating both positions, and exactly 3 options: keep their version, apply this request, and a middle ground. Each option "text" is the complete replacement for the contested paragraph. With no conflict, "conflict" and "discussion" are null.
+6. Sections under OPEN DISCUSSIONS are frozen until the team concludes: do not edit them; use action "none" and say the request will count as input to the discussion.
+7. Do not invent numbers that contradict the document.
+
+DOCUMENT (paragraph index in parentheses)
+${docBlock(sections)}
+
+RECENT CHANGES (last 30 minutes, newest first)
+${changesBlock(recent)}
+
+OPEN DISCUSSIONS
+${discBlock(openDiscs)}`;
+}
+
+export function draftPrompt({ sections, theirs, mine, contested, userName, lang }) {
+  return `You are the team agent in Relay, a product spec several teammates edit through you. Two edits disagree on the same paragraph. Draft a short team discussion so they can decide.
+
+Reply language for "note", "title", "question", "label", "desc": ${langName(lang)}. "titleEn", "labelEn" and every option "text" are English.
+
+Earlier change by ${theirs.by_name} at ${hhmm(theirs.created_at)}: ${theirs.summary || ''} (why: ${theirs.why || 'not given'})
+Their paragraph: ${contested.theirs}
+New request by ${userName}: ${mine.summary || ''} (why: ${mine.why || 'not given'})
+New paragraph: ${contested.mine}
+
+Exactly 3 options: keep ${theirs.by_name}'s version, apply ${userName}'s request, and a middle ground. Each option "text" is the complete replacement paragraph in the document's "Label: text" style.
+
+DOCUMENT
+${docBlock(sections)}`;
+}
+
+/* history: [{role:'user'|'agent', text}] oldest first → alternating Messages API turns that end with the user */
+export function toTurns(history, text) {
+  const turns = [];
+  for (const m of history) {
+    const role = m.role === 'agent' ? 'assistant' : 'user';
+    if (!turns.length && role === 'assistant') continue;
+    const last = turns[turns.length - 1];
+    if (last && last.role === role) last.content += `\n\n${m.text}`; else turns.push({ role, content: m.text });
+  }
+  const last = turns[turns.length - 1];
+  if (!last || last.role !== 'user' || !last.content.endsWith(text)) {
+    if (last && last.role === 'user') last.content += `\n\n${text}`; else turns.push({ role: 'user', content: text });
+  }
+  return turns;
+}
+
+export async function callClaude({ system, messages, tool, timeoutMs = 40000, maxTokens = 2500 }) {
+  if (globalThis.__RELAY_FAKE_CLAUDE) return globalThis.__RELAY_FAKE_CLAUDE({ system, messages, tool });   // MOCK dev server only
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error('ANTHROPIC_API_KEY missing');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: MODEL(), max_tokens: maxTokens, system, messages, tools: [tool], tool_choice: { type: 'tool', name: tool.name } }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`anthropic ${r.status}: ${(j && j.error && j.error.message) || 'error'}`);
+    const block = (j.content || []).find((c) => c.type === 'tool_use' && c.name === tool.name);
+    if (!block) throw new Error('anthropic: no tool_use in response');
+    return block.input;
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`anthropic: timed out after ${timeoutMs / 1000}s`);
+    throw e;
+  } finally { clearTimeout(timer); }
+}

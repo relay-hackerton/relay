@@ -39,7 +39,9 @@ Nov 9, 2026 · @김유래
 | 단순화 | 커서 | 단어 위치 대신 섹션 이름표 |
 | 단순화 | 공유 문서 본문 언어 | 본문은 영어 하나, 화면 문구와 에이전트 답만 언어를 따른다 |
 | 버림 | 로그인, 홈 라이브러리, 새 이슈 만들기 |  |
-| 버림 | 직접 고치기, 좋아요, 페이지 확대·넘기기 | 시간이 남아도 추가하지 않는다 |
+| 진짜로 | 섹션 단위 직접 수정 | 11/9 추가 결정. 한 섹션을 한 사람이 고치고 저장(rev 확인). 고치는 동안 다른 사람에게 연필 이름표, 활동 로그에 사람 수정 diff. 글자 단위 공동 편집(CRDT)은 하지 않는다 |
+| 버림 | 좋아요, 페이지 확대·넘기기 | 시간이 남아도 추가하지 않는다 |
+| 시간 남으면 | 여러 확장자로 내보내기 | MVP 이후 후보. 2:30 점검까지 충돌 흐름이 끝나 있으면 C가 시작하고, 3:15 동결 때 안 끝났으면 뺀다. 설계는 부록 참고 |
 
 ## 기술 선택
 
@@ -268,10 +270,11 @@ POST /api/bot     { roomId, lang }                            → { ok: true }  
 | 경로 | 담당 | 내용 |
 | --- | --- | --- |
 | `index.html`, `vercel.json`, `package.json`, `supabase/schema.sql`, `store.js`, `api/room.js`, `api/config.js`, `api/_lib.js`, `api/_seed.js` | A | 스키마·정책·잠금 함수, 시드, 방 만들기, 브라우저 설정 |
-| `api/agent.js`, `api/resolve.js`, `api/bot.js`, `api/_agent.js`, `api/_resolve.js`, `api/_prompt.js` | B | 에이전트 파이프라인, 결론 반영, 팀원 봇 |
+| `api/agent.js`, `api/resolve.js`, `api/bot.js`, `api/edit.js`, `api/_agent.js`, `api/_resolve.js`, `api/_edit.js`, `api/_prompt.js` | B | 에이전트 파이프라인, 결론 반영, 팀원 봇 |
 | `app.js`, `panels.js`, `styles.css`, `i18n.js`, `data.js` | C | 화면, 랜딩, 안내 카드, 문구 |
 | `diff.js`, `fonts/`, `img/` | 손대지 않음 | 확정본 그대로 |
-| `scripts/check.mjs`, `scripts/mockdb.mjs` | B | Supabase·Claude 없이 서버 흐름 전체를 도는 테스트 (`npm run check`) |
+| `scripts/check.mjs`, `scripts/mockdb.mjs`, `scripts/fake-claude.mjs` | B | Supabase·Claude 없이 서버 흐름 전체를 도는 테스트 (`npm run check`) |
+| `dev-server.mjs`, `scripts/mock-supabase.js` | A | 로컬 서버. `MOCK=1`이면 키 없이 화면까지 전부 돈다 |
 
 `api/` 안에서 `_`로 시작하는 파일은 Vercel이 함수로 만들지 않는 공용 모듈이다.
 
@@ -296,14 +299,38 @@ POST /api/bot     { roomId, lang }                            → { ok: true }  
 - 봇 표: 반박당한 변경의 주인(Jieun)은 A(기존 유지), 다른 봇(Minsu)은 B(새 요청). 심사위원 한 표가 결정표다.
 - 사람 아이디는 브라우저에서 만든 `u_…`, 봇은 `bot_jieun`·`bot_minsu`, 에이전트는 `agent`.
 
+**직접 수정 (11/9 추가)**
+
+- `POST /api/edit { roomId, userId, userName, sectionId, paras, rev, lang }` → `{ ok, changeId }`. 시작할 때의 `rev`와 다르면 409 `stale`, 열린 토론이 있는 섹션이면 409 `frozen`. 에이전트 잠금은 쓰지 않고 rev로만 덮어쓰기를 막는다.
+- 변경은 `changes.kind = 'human'`으로 남고, 이후 에이전트 요청의 충돌 감지 대상에도 들어간다.
+- 고치는 중에는 presence에 `editing: sectionId`를 올려 다른 사람 화면에 "OO님 수정 중"과 연필 이름표를 보여준다.
+- `Store.edit(sectionId, paras, rev, {lang})`
+
+**내보내기 (시간 남으면, 11/9 추가)**
+
+MVP가 끝난 뒤 시간이 남으면 넣는다. 서버 없이 브라우저에서 지금 문서 상태로 파일을 만든다.
+
+| 형식 | 만드는 법 | 순서 |
+| --- | --- | --- |
+| Markdown `.md` | 제목·리드·섹션(`## 3. Core features`)·문단, 마지막에 결정 기록 | 1 |
+| HTML `.html` | 스타일을 안에 넣은 단일 파일 | 2 |
+| PDF | 인쇄용 CSS + `window.print()` (브라우저의 PDF 저장) | 3 |
+| JSON `.json` | 섹션과 변경 기록(누가·왜·이전·이후) 전체 | 4 |
+| Word `.docx` | CDN 라이브러리로 생성. 가장 마지막 | 5 |
+
+- 파일: `export.js` (C 담당), `window.RelayExport.download(format, { title, lede, sections, changes, discussions })`
+- 화면: 문서 탭 오른쪽에 "Export" 메뉴 하나. 새 API나 테이블은 만들지 않는다.
+
 **화면에서 단순화한 것**
 
 - 토론은 충돌 때 에이전트가 연다. 사람이 직접 토론을 만드는 화면과 토론 댓글 입력은 버렸다.
 - 결론 확정은 1표 이상이면 가능하다(혼자 들어온 심사위원도 끝까지 갈 수 있게).
-- 페이지 확대·넘기기 바, 직접 수정, 좋아요, 세션 비공개, 홈 라이브러리는 화면에서 뺐다.
+- 페이지 확대·넘기기 바, 좋아요, 세션 비공개, 홈 라이브러리는 화면에서 뺐다.
 
 **로컬 실행**
 
 1. Supabase SQL 편집기에서 `supabase/schema.sql`을 실행한다.
 2. `.env.example`을 `.env.local`로 복사해 키를 채운다 (`ANTHROPIC_MODEL`은 기본 `claude-sonnet-5-5`).
-3. `vercel dev` 또는 `npm run check`(키 없이 서버 흐름 테스트).
+3. `node dev-server.mjs`(키 사용) 또는 `vercel dev`.
+4. 키 없이: `MOCK=1 node dev-server.mjs` → 메모리 DB, 정해진 답을 하는 가짜 Claude, SSE로 흉내 낸 실시간. 브라우저 두 개로 방 만들기 → 팀원 봇 → 충돌 → 토론 → 결론 → 직접 수정까지 전부 돌아간다. 화면 작업(C)은 이걸로 한다.
+5. `npm run check`: 서버 흐름 전체를 모의 DB로 검사한다.
