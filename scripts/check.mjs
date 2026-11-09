@@ -138,8 +138,8 @@ assert.equal(sharedTables.changes.length, 0);
 
 const john = await runProfile({ name: 'John' }, deps);
 const emma = await runProfile({ name: 'Emma' }, deps);
-assert.match(john.avatar, /^p:(minsu|hyunwoo)$/);
-assert.match(emma.avatar, /^p:(me|jieun)$/);
+assert.match(john.avatar, /^p:(hyunwoo|m1|m2|m3)$/);
+assert.match(emma.avatar, /^p:(me|w1|w2|w3)$/);
 assert.equal((await runProfile({ userId: john.userId }, deps)).avatar, john.avatar);
 
 // 9. helpers

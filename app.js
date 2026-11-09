@@ -22,7 +22,8 @@
   const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[n]}"/></svg>`;
 
   /* ---------- people: whoever shows up in presence, messages, changes and votes ---------- */
-  const PHOTOS = { me: ['img/me.jpg', '#D9503B'], minsu: ['img/minsu.jpg', '#2E6BE0'], jieun: ['img/jieun.jpg', '#1E9A66'], hyunwoo: ['img/hyunwoo.jpg', '#D28B0A'] };
+  const PHOTOS = { me: ['img/me.jpg', '#D9503B'], minsu: ['img/minsu.jpg', '#2E6BE0'], jieun: ['img/jieun.jpg', '#1E9A66'], hyunwoo: ['img/hyunwoo.jpg', '#D28B0A'],
+    w1: ['img/w1.jpg', '#C2410C'], w2: ['img/w2.jpg', '#B45309'], w3: ['img/w3.jpg', '#7C3AED'], m1: ['img/m1.jpg', '#0F766E'], m2: ['img/m2.jpg', '#475569'], m3: ['img/m3.jpg', '#0369A1'] };
   const BOTS = { bot_jieun: { name: 'Jieun', avatar: 'p:jieun' }, bot_minsu: { name: 'Minsu', avatar: 'p:minsu' } };
   const people = new Map();
   const hashColor = (id) => { const c = ['#D9503B', '#2E6BE0', '#1E9A66', '#D28B0A', '#8B5CF6', '#0EA5A4']; let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return c[h % c.length]; };

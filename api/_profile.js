@@ -1,17 +1,15 @@
 /* Nicknames: unique across the app (case-insensitive). The server makes the user id and a random avatar the first time;
    the browser keeps { userId, name, avatar } and re-checks it on every visit. */
 import { db as realDb, shortId } from './_lib.js';
+import { guessGender } from './_gender.js';
 
-const portraitGroups = [
-  { names: new Set(['alice', 'anna', 'emily', 'emma', 'grace', 'jane', 'julia', 'lisa', 'lucy', 'mary', 'olivia', 'sarah', 'sophia', '서연', '수빈', '예린', '유나', '지은', '하은']), portraits: ['p:me', 'p:jieun'] },
-  { names: new Set(['andrew', 'daniel', 'david', 'henry', 'james', 'john', 'kevin', 'michael', 'peter', 'robert', 'thomas', 'william', '동현', '민수', '준호', '태호', '현우', '존']), portraits: ['p:minsu', 'p:hyunwoo'] },
-];
-const AVATARS = portraitGroups.flatMap(({ portraits }) => portraits);
+/* portraits for people (the bots' faces, Minsu and Jieun, are kept for the bots) */
+const PORTRAITS = { f: ['p:me', 'p:w1', 'p:w2', 'p:w3'], m: ['p:hyunwoo', 'p:m1', 'p:m2', 'p:m3'] };
+const AVATARS = [...PORTRAITS.f, ...PORTRAITS.m];
 
-function chooseAvatar(name) {
-  // Only these exact nickname matches influence the portrait. Everything else uses the full pool.
-  const nickname = name.toLowerCase();
-  const options = portraitGroups.find(({ names }) => names.has(nickname))?.portraits || AVATARS;
+/* random, but from the matching set when the nickname makes it fairly clear (지은 → f, 준호 → m, Emma → f) */
+export function chooseAvatar(name) {
+  const options = PORTRAITS[guessGender(name)] || AVATARS;
   return options[Math.floor(Math.random() * options.length)];
 }
 const RESERVED = ['agent', 'minsu', 'jieun', '에이전트', '민수', '지은'];
@@ -22,7 +20,13 @@ export async function runProfile(input, deps = {}) {
   const userId = input.userId && /^u_[a-z0-9]{6,20}$/.test(input.userId) ? input.userId : null;
   if (!name && userId) {   // look up only
     const [p] = await d.select('profiles', `user_id=${d.eq(userId)}`);
-    return p ? { ok: true, userId: p.user_id, name: p.name, avatar: p.avatar } : { status: 404, body: { error: 'not_found' } };
+    if (!p) return { status: 404, body: { error: 'not_found' } };
+    let avatar = p.avatar;
+    if (!AVATARS.includes(avatar)) {   // made before the portrait set (a plain color, or a bot's face): give them a portrait once
+      avatar = chooseAvatar(p.name);
+      await d.update('profiles', `user_id=${d.eq(userId)}`, { avatar, updated_at: new Date().toISOString() });
+    }
+    return { ok: true, userId: p.user_id, name: p.name, avatar };
   }
   if (name.length < 2 || name.length > 20) return { status: 400, body: { error: 'length' } };
   if (RESERVED.includes(name.toLowerCase())) return { status: 409, body: { error: 'taken' } };
