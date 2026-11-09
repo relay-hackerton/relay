@@ -72,7 +72,7 @@
   const isBodySection = (s) => s.id !== 's8';
   const documentSections = () => state.sections.filter(isBodySection);
   const importedRoom = () => state.sections[0]?.id.startsWith('import-');
-  const documentLede = () => importedRoom() ? '' : DOC.lede;
+  const documentLede = () => importedRoom() || ['shared', 'import'].includes(state.room?.kind) ? '' : DOC.lede;   // the prototype lede belongs to the demo copies only
   const secLabel = (id) => { const s = secById(id); return s ? `${s.num}. ${s.title}` : t('no_section'); };
   const secRef = (id) => secById(id) ? `<span class="sec-ref" data-goto="${id}">${esc(secLabel(id))}</span>` : t('no_section');
   const changesOf = (sid) => state.changeList.filter((c) => c.sectionId === sid);
@@ -644,16 +644,17 @@
   /* ---------- workspace library ---------- */
   const ago = (mins) => mins < 1 ? t('ago_now') : mins < 60 ? t('ago_min', { n: Math.round(mins) }) : mins < 1440 ? t('ago_h', { n: Math.round(mins / 60) }) : t('ago_d', { n: Math.round(mins / 1440) });
   function renderHome() {
-    const shared = { id: 'onboarding', title: DOC.title, accent: '#2F6BFF', live: true };
+    const sr = state.sharedRoom;
+    const shared = { id: 'onboarding', title: sr ? sr.title : DOC.title, firstPage: sr && sr.firstPage, accent: '#2F6BFF', live: true };
     patch($('#home'), `
       <div class="home-main">
         <div class="home-h"><h1>${t('home_title')}</h1><button class="btn primary" data-add-issue>${icon('plus')}${t('add_issue')}</button></div>
         <div class="units">
-          ${[...state.importedRooms, shared].map((u) => {
+          ${[shared, ...state.importedRooms].map((u) => {
             const active = u.roomId ? u.roomId === state.roomId : state.room?.kind === 'shared';
-            const firstPage = active ? documentPages()[0] : u.live ? DOC.sections.filter((sec) => (sec.page || 1) === 1) : [];
+            const firstPage = active ? documentPages()[0] : u.firstPage && u.firstPage.length ? u.firstPage : u.live && !state.sharedRoom ? DOC.sections.filter((sec) => (sec.page || 1) === 1) : [];
             return `<button class="unit ${u.live ? 'live' : ''}" data-open-unit="${u.id}" style="--accent:${u.accent}">
-              <span class="thumb"><article class="paper"><h1>${esc(u.title)}</h1>${firstPage.map((sec) => `<section class="sec"><h2>${esc(sec.title)}</h2><p>${esc(sec.paras[0] || '')}</p></section>`).join('')}</article></span>
+              <span class="thumb"><article class="paper"><h1>${esc(u.title)}</h1>${firstPage.map((sec) => `<section class="sec"><h2>${esc(sec.title)}</h2><p>${esc(window.RelayMarkdown.plain(sec.paras.find((p) => !/^(\||```)/.test(p)) || ''))}</p></section>`).join('')}</article></span>
               <span class="u-title">${esc(u.title)}</span>
               ${u.editedMin === undefined ? '' : `<span class="u-meta">${ago(u.editedMin)}</span>`}
             </button>`; }).join('')}
@@ -721,9 +722,11 @@
     let rows; try { rows = await Store.importedRooms(); } catch (e) { rows = null; }
     const first = !libraryLoaded; libraryLoaded = true;
     if (!rows) { if (first && state.view === 'home') renderHome(); return; }
-    const key = JSON.stringify(rows.map((r) => [r.id, r.title]));
+    const key = JSON.stringify(rows.map((r) => [r.id, r.title, r.firstPage.length]));
     if (first) libraryKey = '';
-    state.importedRooms = rows.map((r, i) => ({ id: `room-${r.id}`, roomId: r.id, title: r.title, editedMin: (Date.now() - new Date(r.created_at)) / 60000, accent: ACCENTS[i % ACCENTS.length], members: [] }));
+    const shared = rows.find((r) => r.kind === 'shared');
+    state.sharedRoom = shared ? { roomId: shared.id, title: shared.title, firstPage: shared.firstPage } : null;
+    state.importedRooms = rows.filter((r) => r.kind !== 'shared').map((r, i) => ({ id: `room-${r.id}`, roomId: r.id, title: r.title, firstPage: r.firstPage, editedMin: (Date.now() - new Date(r.created_at)) / 60000, accent: ACCENTS[(i + 1) % ACCENTS.length], members: [] }));
     if (key !== libraryKey) { libraryKey = key; if (state.view === 'home') renderHome(); }
   }
 

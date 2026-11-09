@@ -867,3 +867,9 @@ body.entering :is(.msg, .ent, .cmt, .sysnote, .compose, .pop) { animation: none 
 .agent-chip[data-status="waiting"] .dot, .rail-agent[data-status="waiting"] .dot,
 .disc-chip .dot, .disc-f .agentline .dot, .live-tag .dot, .btn.ready { animation-iteration-count: 3 !important; }
 .agent-chip[data-status="working"] .dot, .rail-agent[data-status="working"] .dot { animation-iteration-count: 20 !important; }
+.sec-body p.md-chart { max-width: none; display: grid; gap: 8px; padding: 12px 14px; border: 1px solid rgba(27,33,48,.10); border-radius: 10px; background: rgba(255,255,255,.6); }
+.sec-body .ch-t { font-size: 12.5px; font-weight: 650; color: var(--ink-2, #5A6478); }
+.sec-body .ch-rows { display: grid; grid-template-columns: minmax(90px, max-content) 1fr auto; gap: 6px 10px; align-items: center; font-size: 13px; line-height: 1.4; }
+.sec-body .ch-bar { height: 10px; border-radius: 5px; background: rgba(27,33,48,.06); overflow: hidden; }
+.sec-body .ch-bar i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #6F8DFF, #2F6BFF); }
+.sec-body .ch-v { font-variant-numeric: tabular-nums; color: var(--ink-2, #5A6478); }

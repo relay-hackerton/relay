@@ -207,12 +207,15 @@ window.Store = (() => {
   const profile = (body) => api('profile', body);
   const sharedRoom = async () => { const r = await api('room', { shared: true }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
   /* Documents created or imported in the library have an import-1 first section. */
+  /* the library: the shared document and every created/imported one, each with its first page for the thumbnail */
   async function importedRooms() {
     need();
-    const s = await sb.from('sections').select('room_id').eq('id', 'import-1').limit(40);
-    if (s.error || !s.data.length) return [];
-    const r = await sb.from('rooms').select('id,title,created_at').in('id', s.data.map((x) => x.room_id)).order('created_at', { ascending: false });
-    return r.error ? [] : r.data;
+    const r = await sb.from('rooms').select('id,title,kind,created_at').in('kind', ['shared', 'import']).order('created_at', { ascending: false }).limit(40);
+    if (r.error || !r.data.length) return [];
+    const s = await sb.from('sections').select('room_id,id,num,title,paras').in('room_id', r.data.map((x) => x.id)).eq('page', 1).order('num');
+    const first = {};
+    (s.data || []).forEach((x) => { if (x.id !== 's8') (first[x.room_id] ||= []).push({ title: x.title, paras: x.paras || [] }); });
+    return r.data.map((x) => ({ ...x, firstPage: first[x.id] || [] }));
   }
   const createRoom = async (document) => { const r = await api('room', { document }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
 
