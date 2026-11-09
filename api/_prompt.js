@@ -1,7 +1,9 @@
 /* Prompt, tool schemas and the Anthropic Messages API call for the team agent. English prompt; reply language follows `lang`. */
 import { hhmm } from './_lib.js';
 
-export const MODEL = () => process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+/* provider: LLM_PROVIDER=anthropic|openai, or whichever key is set (Anthropic first) */
+export const PROVIDER = () => (process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'anthropic')).toLowerCase();
+export const MODEL = () => (PROVIDER() === 'openai' ? process.env.OPENAI_MODEL || 'gpt-6-luna' : process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5');
 
 const str = (description) => ({ type: 'string', description });
 const nstr = (description) => ({ type: ['string', 'null'], description });
@@ -121,8 +123,42 @@ export function toTurns(history, text) {
   return turns;
 }
 
-export async function callClaude({ system, messages, tool, timeoutMs = 40000, maxTokens = 2500 }) {
-  if (globalThis.__RELAY_FAKE_CLAUDE) return globalThis.__RELAY_FAKE_CLAUDE({ system, messages, tool });   // MOCK dev server only
+/* The model call the pipeline uses. Name kept as callClaude so callers do not change; it routes to the configured provider. */
+export async function callClaude(args) {
+  if (globalThis.__RELAY_FAKE_CLAUDE) return globalThis.__RELAY_FAKE_CLAUDE(args);   // MOCK dev server only
+  return PROVIDER() === 'openai' ? callOpenAI(args) : callAnthropic(args);
+}
+
+/* OpenAI Responses API with one forced function call (GPT-6 models need Responses for tool calling) */
+async function callOpenAI({ system, messages, tool, timeoutMs = 40000, maxTokens = 2500 }) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY missing');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST', signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL(), instructions: system, max_output_tokens: maxTokens,
+        input: messages.map((m) => ({ role: m.role, content: m.content })),
+        tools: [{ type: 'function', name: tool.name, description: tool.description, parameters: tool.input_schema }],
+        tool_choice: { type: 'function', name: tool.name },
+        reasoning: { effort: process.env.OPENAI_REASONING || 'low' },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`openai ${r.status}: ${(j && j.error && j.error.message) || 'error'}`);
+    const call = (j.output || []).find((o) => o.type === 'function_call' && o.name === tool.name);
+    if (!call) throw new Error('openai: no function_call in response');
+    return JSON.parse(call.arguments);
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`openai: timed out after ${timeoutMs / 1000}s`);
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+
+async function callAnthropic({ system, messages, tool, timeoutMs = 40000, maxTokens = 2500 }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY missing');
   const ctrl = new AbortController();

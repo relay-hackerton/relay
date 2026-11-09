@@ -19,7 +19,7 @@
 | | |
 | --- | --- |
 | Shared document | Supabase Postgres, synced live to everyone in the room (Realtime) |
-| The agent | Claude (Messages API, tool use for a fixed JSON shape), one request at a time per room, others queue |
+| The agent | An LLM with one forced function call for a fixed JSON shape (OpenAI `gpt-6-luna` via the Responses API, or Claude via the Messages API), one request at a time per room, others queue |
 | Who changed what and why | Every change stores author, reason, before/after and the session it came from; Activity shows GitHub-style diffs |
 | Conflicts | Detected when an edit rewrites a paragraph someone else changed in the last 30 minutes; the agent drafts a 3-option discussion |
 | Presence | Who is online and which section they are reading or editing |
@@ -31,11 +31,11 @@
 ```
 Browser (HTML/CSS/JS, no build)  ──reads, realtime, presence, own messages & votes──▶  Supabase
         │                                                                              ▲
-        └── POST /api/agent · /api/resolve · /api/edit · /api/bot · /api/room ──▶ Vercel functions ──▶ Claude
+        └── POST /api/agent · /api/resolve · /api/edit · /api/bot · /api/room ──▶ Vercel functions ──▶ LLM (OpenAI or Claude)
                                                                        (service key: the only writer of the document)
 ```
 
-- `api/_agent.js` — lock → read document, recent changes, your last 8 messages → Claude → validate (section exists, English body, ≤3 new paragraphs) → write section (rev check), change, discussion, reply → unlock
+- `api/_agent.js` — lock → read document, recent changes, your last 8 messages → model → validate (section exists, English body, ≤3 new paragraphs) → write section (rev check), change, discussion, reply → unlock
 - `api/_resolve.js` — applies the winning option to the section and the decision log, no model call
 - `supabase/schema.sql` — tables, row-level security (the browser can only read, post its own messages and vote), the agent lock
 - `docs/PLAN.md` — the full build plan

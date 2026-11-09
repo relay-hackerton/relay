@@ -299,6 +299,12 @@ POST /api/bot     { roomId, lang }                            → { ok: true }  
 - 봇 표: 반박당한 변경의 주인(Jieun)은 A(기존 유지), 다른 봇(Minsu)은 B(새 요청). 심사위원 한 표가 결정표다.
 - 사람 아이디는 브라우저에서 만든 `u_…`, 봇은 `bot_jieun`·`bot_minsu`, 에이전트는 `agent`.
 
+**모델 제공자 (11/9 변경)**
+
+- Anthropic 크레딧이 없어 OpenAI로 돌린다. `OPENAI_API_KEY`만 넣으면 OpenAI, `ANTHROPIC_API_KEY`가 있으면 Claude, `LLM_PROVIDER`로 강제할 수 있다.
+- OpenAI는 Responses API(`/v1/responses`)에 함수 하나를 강제 호출한다(`tool_choice`). GPT-6 계열은 Chat Completions에서 도구 호출이 제한돼서다. 기본 모델 `gpt-6-luna`, `OPENAI_REASONING=low`.
+- 프롬프트, 도구 스키마, 검증은 두 제공자가 같이 쓴다.
+
 **직접 수정 (11/9 추가)**
 
 - `POST /api/edit { roomId, userId, userName, sectionId, paras, rev, lang }` → `{ ok, changeId }`. 시작할 때의 `rev`와 다르면 409 `stale`, 열린 토론이 있는 섹션이면 409 `frozen`. 에이전트 잠금은 쓰지 않고 rev로만 덮어쓰기를 막는다.
