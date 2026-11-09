@@ -208,10 +208,25 @@
     requestAnimationFrame(() => { const el = $(`.disc[data-id="${id}"]`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   }
 
+  /* ---------- DOM patching: change only what differs (no replayed entry animations, no image reloads, no lost focus) ---------- */
+  function patch(el, html, skip) {
+    if (!el) return;
+    if (!window.morphdom) { el.innerHTML = html; return; }
+    const next = el.cloneNode(false); next.innerHTML = html;
+    window.morphdom(el, next, { childrenOnly: true, onBeforeElUpdated: (from, to) => {
+      if (from.isEqualNode(to)) return false;
+      if (skip && skip(from, to)) return false;
+      if (from === document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(from.tagName)) return false;
+      return true;
+    } });
+  }
+
   /* ---------- agent status, presence, header ---------- */
+  let agentKey = '';
   function setAgent(status, text) {
+    if (agentKey === status + '|' + text) return; agentKey = status + '|' + text;
     $('#agentChip').dataset.status = status;
-    $('#agentChip img').src = agentPhoto(status);
+    const img = $('#agentChip img'); const src = agentPhoto(status); if (img.getAttribute('src') !== src) img.src = src;
     $('#agentText').innerHTML = `<b>${t('agent')}</b> ${esc(text)}`;
     state.agentStatus = status; renderRail();
   }
@@ -235,14 +250,14 @@
     if (state.room && state.room.bots_on) Object.keys(BOTS).forEach((id) => online.add(id));
     online.delete(ME());
     const ids = [ME(), ...online];
-    $('#presence').innerHTML = ids.map((id, index) => {
+    patch($('#presence'), ids.map((id, index) => {
       const m = member(id); const mine = id === ME();
       const p = state.presence.find((x) => x.userId === id);
       const where = p && p.sectionId ? ` · ${secLabel(p.sectionId)}` : '';
       const priv = isPrivate(id);
       const title = `${m.name} · ${mine ? t('presence_me') : m.bot ? t('presence_bot') : t('presence_online')}${where}${priv ? ' · ' + t('presence_private') : ''}${mine || priv ? '' : ' · ' + t('presence_view')}`;
       return `<button class="av live ${state.viewing === id ? 'current' : ''}" data-user="${id}" style="--c:${m.color}; z-index:${ids.length - index}" title="${esc(title)}">${m.photo ? `<img src="${m.photo}" alt="${esc(m.name)}">` : esc(initial(m.name))}</button>`;
-    }).join('');
+    }).join(''));
   }
   const botDone = () => state.changeList.some((c) => c.by === 'bot_jieun' && c.sectionId === 's3');
   function renderHeaderActions() { if (state.viewing === ME() && state.view === 'doc') renderChat(); }   // the teammate button lives in the welcome message
@@ -320,7 +335,7 @@
   function renderChat() {
     const box = $('#msgs'); const id = state.viewing; if (!id) return;
     const mine = id === ME();
-    if (!mine && isPrivate(id)) { box.innerHTML = `<div class="private-note">${icon('lock')}<h3>${t('private_h')}</h3><p>${esc(t('private_p', { name: name(id) }))}</p></div>`; return; }
+    if (!mine && isPrivate(id)) { delete box.dataset.viewing; box.innerHTML = `<div class="private-note">${icon('lock')}<h3>${t('private_h')}</h3><p>${esc(t('private_p', { name: name(id) }))}</p></div>`; return; }
     const list = state.messages.filter((m) => m.userId === id);
     const items = [];
     if (mine) {
@@ -333,11 +348,13 @@
     items.sort((a, b) => a.at - b.at);
     if (mine && state.queued) items.push({ role: 'agent', html: t('msg.queued', { name: esc((state.room.agent || {}).by_name || '?') }) });
     if (mine && state.pending && !state.queued) items.push({ kind: 'typing' });
-    box.innerHTML = (!mine && !list.length ? `<div class="private-note"><p>${esc(t('sess_empty'))}</p></div>` : '') + items.map((m) => {
+    const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 120 || box.dataset.viewing !== id;
+    box.dataset.viewing = id;
+    patch(box, (!mine && !list.length ? `<div class="private-note"><p>${esc(t('sess_empty'))}</p></div>` : '') + items.map((m) => {
       if (m.kind === 'typing') return `<div class="msg agent">${avatar('agent', '', 'working')}<div class="bub typing"><i></i><i></i><i></i></div></div>`;
       return `<div class="msg ${m.role}">${m.role === 'agent' ? avatar('agent') : ''}<div class="bub" ${m.mid ? `data-mid="${m.mid}"` : ''}>${m.role === 'me' ? `<p>${esc(m.text)}</p>` : m.html}</div></div>`;
-    }).join('');
-    box.scrollTop = box.scrollHeight;
+    }).join(''), (from) => from.matches && from.matches('.bub[data-mid]') && reveal[from.dataset.mid] != null);
+    if (stick) box.scrollTop = box.scrollHeight;
   }
   function localSay(html) { state.localMsgs.push({ role: 'agent', html, at: new Date() }); renderChat(); }
 
@@ -428,12 +445,12 @@
     const footer = importedRoom() ? title : DOC.footer;
     $('#docTitle').textContent = title;
     const p1 = state.sections.filter((s) => (s.page || 1) === 1), p2 = state.sections.filter((s) => s.page === 2);
-    $('#docPane').innerHTML = `
+    patch($('#docPane'), `
       <div class="paper-wrap" style="--zoom:${state.zoom / 100}">
         <article class="paper"><h1>${esc(title)}</h1>${documentLede() ? `<p class="lede">${esc(documentLede())}</p>` : ''}${p1.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(footer)}</span><span>01 / 02</span></div></article>
         <article class="paper">${p2.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(footer)}</span><span>02 / 02</span></div></article>
-      </div>`;
-    if (keepHtml != null) { const el = $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`); if (el) { el.innerHTML = keepHtml; if (hadFocus) { el.focus(); if (caret != null) restoreCaret(el, caret); } } }
+      </div>`, (from) => from === keep || from.classList.contains('section-readers'));
+    if (keepHtml != null) { const el = $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`); if (el && el !== keep) { el.innerHTML = keepHtml; if (hadFocus) { el.focus(); if (caret != null) restoreCaret(el, caret); } } }
     renderViewer(); renderDocMeta(); renderReadingAvatars();
   }
   /* keep my caret where it was when the document re-renders under me */
@@ -548,6 +565,7 @@
   }
 
   /* ---------- reading positions in the document gutter ---------- */
+  const readersHtml = new WeakMap();
   function renderReadingAvatars() {
     if (state.view !== 'doc' || state.tab !== 'doc') return;
     const reading = new Map();
@@ -559,7 +577,7 @@
     }
     $$('#docPane [data-readers]').forEach((el) => {
       const readers = [...(reading.get(el.dataset.readers) || [])];
-      el.innerHTML = readers.map((id) => avatar(id)).join('');
+      const html = readers.map((id) => avatar(id)).join(''); if (readersHtml.get(el) !== html) { readersHtml.set(el, html); el.innerHTML = html; }
     });
   }
 
@@ -741,10 +759,24 @@
   }
   function setMe(p) { state.me = { userId: p.userId, name: p.name, avatar: p.avatar }; saveMe(state.me); learn(p.userId, p.name, p.avatar); }
   /* the live card at "/" makes a fresh room; inside a room it just opens the document */
+  /* ---------- routing: "/" is the library, "/r/:id" is a room; back/forward move between them without a reload ---------- */
+  function go(path) { if (location.pathname !== path) history.pushState(null, '', path + location.search); return route(); }
+  function route() {
+    const rid = roomFromPath();
+    if (!rid) return showView('home');
+    if (!state.me) return openNameModal();
+    if (rid === state.roomId) return showView('doc');
+    if (state.roomId) return location.reload();   // another room: a clean page keeps the two rooms' state apart
+    return joinRoom(rid);
+  }
   async function startRoom() {
     if (!state.me) return openNameModal();
     if (state.creating) return; state.creating = true; toast(t('land_busy_start'));
-    try { const rid = await Store.createRoom(); history.pushState(null, '', `/r/${rid}${location.search}`); await enterRoom(rid); }
+    try {
+      const rid = await Store.createRoom();
+      if (state.roomId) { location.assign(`/r/${rid}${location.search}`); return; }   // switching rooms: start from a clean page
+      history.pushState(null, '', `/r/${rid}${location.search}`); await enterRoom(rid);
+    }
     catch (e) { toast(t('err_generic', { err: e.message })); }
     state.creating = false;
   }
@@ -882,7 +914,7 @@
   }
 
   /* ---------- panels (discussions, activity log) ---------- */
-  const R = { state, MEMBERS, $, $$, esc, fmt, t, icon, avatar, name, member, secById, secLabel, secRef, openDiscOf, latestChange, changeById, discussions, participants, sessionOf, renderDoc, renderTabs, setTab, gotoDiscussion, toast, Diff, ME, Store, lang, likeHtml, likesOf, localSay };
+  const R = { patch, state, MEMBERS, $, $$, esc, fmt, t, icon, avatar, name, member, secById, secLabel, secRef, openDiscOf, latestChange, changeById, discussions, participants, sessionOf, renderDoc, renderTabs, setTab, gotoDiscussion, toast, Diff, ME, Store, lang, likeHtml, likesOf, localSay };
   const P = window.RelayPanels(R);
   const renderLog = () => P.renderLog();
 
@@ -901,12 +933,12 @@
     if (d.pick) { const set = state.issueDraft.members; if (d.pick !== 'me') { if (set.has(d.pick)) set.delete(d.pick); else set.add(d.pick); } t0.classList.toggle('on', set.has(d.pick)); t0.setAttribute('aria-pressed', set.has(d.pick)); return; }
     if (d.openUnit) {
       const imported = state.importedRooms.find((u) => u.id === d.openUnit);
-      if (imported) return imported.roomId === state.roomId ? showView('doc') : location.assign(`/r/${imported.roomId}${location.search}`);
+      if (imported) return imported.roomId === state.roomId ? go(`/r/${imported.roomId}`) : location.assign(`/r/${imported.roomId}${location.search}`);
       const unit = state.units.find((u) => u.id === d.openUnit);
-      if (unit?.live) return state.roomId && !importedRoom() ? showView('doc') : startRoom();
+      if (unit?.live) return state.roomId && !importedRoom() ? go(`/r/${state.roomId}`) : startRoom();
       return toast(t('toast_only_first'));
     }
-    if (t0.hasAttribute('data-home')) return showView('home');
+    if (t0.hasAttribute('data-home')) return go('/');
     if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; Store.setPresence({ private: state.myPrivate }); renderPresence(); renderComposer(); return; }
     if (d.page) { state.page = Math.min(2, Math.max(1, state.page + Number(d.page))); renderViewer(); return gotoPage(state.page); }
     if (d.zoom) { state.zoom = Math.min(130, Math.max(80, state.zoom + Number(d.zoom))); return renderDoc(); }
@@ -974,7 +1006,7 @@
     e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
     Store.setPresence({ typing: true }); clearTimeout(typingTimer); typingTimer = setTimeout(() => Store.setPresence({ typing: false }), 2500);
   });
-  window.addEventListener('popstate', () => location.reload());
+  window.addEventListener('popstate', () => route());
 
   /* ---------- boot ---------- */
   document.documentElement.lang = lang;

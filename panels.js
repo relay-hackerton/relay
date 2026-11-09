@@ -10,13 +10,12 @@ window.RelayPanels = (R) => {
     const existingForm = draft && draft === renderedDraft ? $('#compose') : null;
     const focused = existingForm?.contains(document.activeElement) ? document.activeElement : null;
     const list = discussions().sort((a, b) => (a.status === b.status ? b.at - a.at : a.status === 'open' ? -1 : 1));
-    $('#discPane').innerHTML = `<div class="disc-wrap">
+    R.patch($('#discPane'), `<div class="disc-wrap">
       ${!state.draftDisc ? `<div class="disc-top"><div><b>${t('disc_top_title')}</b><span>${t('disc_top_sub')}</span></div><button class="btn primary" data-open-disc="none">${t('open_disc')}</button></div>` : ''}
-      ${draft ? (existingForm ? '<div id="composeSlot"></div>' : renderCompose(draft)) : ''}${list.length ? list.map(renderDiscussion).join('')
-      : !draft ? `<div class="disc-empty"><h3>${t('disc_empty_h')}</h3><p>${t('disc_empty_p')}</p></div>` : ''}</div>`;
+      ${draft ? renderCompose(draft) : ''}${list.length ? list.map(renderDiscussion).join('')
+      : !draft ? `<div class="disc-empty"><h3>${t('disc_empty_h')}</h3><p>${t('disc_empty_p')}</p></div>` : ''}</div>`, (from) => from === existingForm);   // the form I am typing in stays as it is
     renderedDraft = draft;
     if (existingForm) {
-      $('#composeSlot').replaceWith(existingForm);
       existingForm.querySelector('[type="submit"]').disabled = !!state.composing;
       if (focused) focused.focus({ preventScroll: true });
     }
@@ -211,11 +210,11 @@ window.RelayPanels = (R) => {
             <span class="t mono">${fmt(e.at)}</span></div>${isApply && e.changeId ? diffBlock(e.changeId) : ''}</div>
         </li>`;
     }).join('');
-    $('#logPane').innerHTML = `<div class="log-wrap">
+    R.patch($('#logPane'), `<div class="log-wrap">
       <div class="log-head"><p class="log-day">${t('log_head', { n: entries.length })}</p>
         <select id="logCat" aria-label="${t('cat_all')}">${['all', 'agent', 'human', 'disc', 'like'].map((k) => `<option value="${k}" ${state.logCat === k ? 'selected' : ''}>${t('cat_' + k)}</option>`).join('')}</select>
         <select id="logMember" aria-label="${t('mem_all')}"><option value="all" ${state.logMember === 'all' ? 'selected' : ''}>${t('mem_all')}</option>${who.map((id) => `<option value="${id}" ${state.logMember === id ? 'selected' : ''}>${esc(name(id))}</option>`).join('')}<option value="agent" ${state.logMember === 'agent' ? 'selected' : ''}>${t('agent_name')}</option></select></div>
-      <ul class="log">${items || `<li class="empty">${t('log_empty')}</li>`}</ul></div>`;
+      <ul class="log">${items || `<li class="empty">${t('log_empty')}</li>`}</ul></div>`);
   }
 
   return { renderDisc, composeDiscussion, openDiscussionFromDraft, comment, vote, resolveDiscussion, buildLog, renderLog };
