@@ -6,7 +6,7 @@ window.Store = (() => {
   const handlers = {};
   let channel = null, roomId = null, me = null, presence = {}, buffering = true, buffer = [];
   /* Presence (who is here) is rate-limited by Supabase to a few updates per 30 s per client, so it only carries
-     identity. Where people are and what they type (cursor, typing, editing, draft) travels as Broadcast, throttled. */
+     identity. Where people are and what they type (section, typing, editing, draft) travels as Broadcast, throttled. */
   const TAB = Math.random().toString(36).slice(2, 10);
   const IDENTITY = ['userId', 'tabId', 'name', 'avatar', 'private'];
   let live = {};             // my live state
@@ -52,10 +52,11 @@ window.Store = (() => {
   setInterval(() => { const now = Date.now(); let gone = false; Object.keys(others).forEach((k) => { if (now - others[k].at > LIVE_TTL) { delete others[k]; gone = true; } }); if (gone) emitPresence(); }, 5000);
 
   /* subscribe first, then read; events that arrive during the read are replayed after the caller has the snapshot */
-  async function join(id, user) {
+  async function join(id, user, { checkNickname = false } = {}) {
     need();
     roomId = id; me = { ...user }; presence = { userId: user.userId, tabId: TAB, name: user.name, avatar: user.avatar, private: !!user.private }; live = {};
     buffering = true; buffer = [];
+    clearTimeout(sendTimer); lastLive = '';
     if (channel) { await sb.removeChannel(channel); channel = null; }
     channel = sb.channel(`room:${id}`, { config: { presence: { key: `${user.userId}:${TAB}` }, broadcast: { self: false } } });
     const tables = { sections: 'sections', changes: 'changes', messages: 'messages', discussions: 'discussions', votes: 'votes', reactions: 'reactions', comments: 'comments', rooms: 'room' };
@@ -65,7 +66,13 @@ window.Store = (() => {
         if (buffering) buffer.push([kind, ev]); else emit(kind, ev);
       });
     });
-    channel.on('presence', { event: 'sync' }, () => emitPresence());
+    let confirmNickname;
+    const presenceReady = checkNickname ? new Promise((resolve) => { confirmNickname = resolve; }) : null;
+    channel.on('presence', { event: 'sync' }, () => {
+      const list = presenceList();
+      if (confirmNickname && list.some((p) => p.tabId === TAB)) confirmNickname(list);
+      emitPresence();
+    });
     channel.on('presence', { event: 'join' }, () => sendLive(true));   // tell newcomers where I am
     channel.on('broadcast', { event: 'live' }, ({ payload }) => {
       if (!payload || payload.tabId === TAB) return;
@@ -84,9 +91,25 @@ window.Store = (() => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { clearTimeout(timer); console.warn('realtime', status); if (joined) { lost = true; emit('status', 'offline'); } resolve(); }
       });
     });
-    const snap = await snapshot();
-    setTimeout(() => { buffering = false; const b = buffer; buffer = []; b.forEach(([k, ev]) => emit(k, ev)); }, 0);
-    return snap;
+    try {
+      if (presenceReady) {
+        let timeout;
+        const list = await Promise.race([presenceReady, new Promise((resolve) => { timeout = setTimeout(resolve, 2500); })]);
+        clearTimeout(timeout);
+        confirmNickname = null;
+        const normalize = (name) => String(name || '').trim().normalize('NFKC').toLowerCase();
+        if (!list) throw new Error('nickname_unavailable');
+        if (list.some((p) => p.userId !== user.userId && normalize(p.name) === normalize(user.name))) throw new Error('nickname_taken');
+      }
+      const snap = await snapshot();
+      setTimeout(() => { buffering = false; const b = buffer; buffer = []; b.forEach(([k, ev]) => emit(k, ev)); }, 0);
+      return snap;
+    } catch (error) {
+      await sb.removeChannel(channel);
+      clearTimeout(sendTimer);
+      channel = null; roomId = null;
+      throw error;
+    }
   }
 
   /* the whole room as it is now; used on join and to catch up after a dropped connection */
@@ -167,7 +190,7 @@ window.Store = (() => {
   }
   /* a direct edit of one section; rev is the version I started from */
   const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, userId: me.userId, userName: me.name, sectionId, paras, rev, lang });
-  const createRoom = async () => { const r = await api('room', {}); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
+  const createRoom = async (document) => { const r = await api('room', { document }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
 
   let lastTrack = '';
   function setPresence(patch) {

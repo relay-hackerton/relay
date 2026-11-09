@@ -562,13 +562,16 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 200; padding: 10px 16px; border-radius: var(--r-pill); background: var(--ink); color: #fff; font-size: 13px; box-shadow: 0 12px 30px -10px rgba(27,33,48,.6); animation: popin var(--normal) var(--ease); }
 .toast[hidden] { display: none; }
 
-/* Teammates' cursors in the document */
-.sec { overflow: visible; }
-.viewers { position: absolute; left: -36px; top: 14px; display: flex; flex-direction: column; gap: 4px; animation: popin var(--normal) var(--ease); }
-.viewers .v .av { width: 22px; height: 22px; box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px var(--c); }
-.cursor { position: relative; display: inline-block; width: 0; height: 1.15em; vertical-align: -3px; }
-.cursor i { position: absolute; left: -1px; top: 0; width: 2px; height: 100%; background: var(--c); animation: blink 1s steps(1) infinite; }
-.cursor b { position: absolute; left: -1px; top: -16px; padding: 1px 6px; border-radius: 6px 6px 6px 0; background: var(--c); color: #fff; font-size: 10px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+/* Teammates read at section granularity. Keep their avatars in the document gutter. */
+.section-readers {
+  position: absolute; top: 16px; left: 0; transform: translateX(-55%);
+  display: flex; flex-direction: column; gap: 4px; z-index: 1; pointer-events: none;
+}
+.section-readers .av { width: 22px; height: 22px; font-size: 10px; box-shadow: 0 0 0 2px #fff; }
+@media (max-width: 860px) {
+  .section-readers { transform: translateX(-35%); }
+  .section-readers .av { width: 16px; height: 16px; font-size: 8px; }
+}
 .sec-body p.typing-in::after { background: var(--tc, var(--blue)); }
 .live-tag.human { background: var(--c); box-shadow: 0 8px 20px -10px var(--c); }
 .live-tag svg { width: 12px; height: 12px; }
@@ -680,9 +683,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .unit.fresh .thumb { animation: fresh 1.6s var(--ease); }
 @keyframes fresh { 0% { box-shadow: 0 0 0 6px rgba(47,107,255,.35); } 100% { box-shadow: 0 1px 2px rgba(27,33,48,.05), 0 18px 34px -20px rgba(47,107,255,.45); } }
 .unit .u-meta .av.more { background: #E4E8F1; color: var(--ink-2); font-size: 9.5px; font-weight: 650; margin-left: 4px; box-shadow: none; }
-.cursor b { display: inline-flex; align-items: center; gap: 3px; }
-.cursor b svg { width: 9px; height: 9px; }
-.cursor:not(.typing) i { animation: none; opacity: .85; }
 .like.off { color: var(--ink-3); border-color: transparent; background: rgba(27,33,48,.04); }
 .like.off .emoji { filter: grayscale(1); opacity: .55; }
 .like.off:hover { color: var(--ink); border-color: var(--line); background: #fff; }
@@ -758,7 +758,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .export-menu button:hover { background: rgba(47,107,255,.07); color: var(--blue); }
 .offline .agent-chip { opacity: .55; }
 .sec-body p.draft-line { background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: -3px 0 0 var(--c); border-radius: 3px; padding-left: 6px; margin-left: -9px; }
-.draft-caret { display: inline-block; width: 2px; height: 1.1em; vertical-align: -2px; margin-left: 2px; background: var(--c, var(--blue)); animation: blink 1s steps(1) infinite; }
 @media (max-width: 600px) {
   .top { flex-wrap: wrap; }
   .top-right { flex-wrap: wrap; gap: 8px; margin-left: 0; width: 100%; }

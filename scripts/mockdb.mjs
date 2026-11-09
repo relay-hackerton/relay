@@ -28,6 +28,10 @@ export function mockDb() {
       T[table].push(...out); return clone(out);
     },
     async update(table, q, patch) { const { f } = parse(q); const rows = T[table].filter((r) => match(r, f)); rows.forEach((r) => Object.assign(r, clone(patch))); return clone(rows); },
+    async delete(table, q) {
+      const { f } = parse(q);
+      T[table] = T[table].filter((row) => !match(row, f));
+    },
     async rpc(fn, a) {
       const room = T.rooms.find((r) => r.id === a.p_room);
       if (fn === 'acquire_agent') {

@@ -12,6 +12,7 @@
       <div class="seg lang home-only" id="langSeg"><button class="tab" data-lang="en">EN</button><button class="tab" data-lang="ko">한국어</button></div>
       <div class="presence work-only" id="presence" aria-label="Team"></div>
       <div class="agent-chip work-only" id="agentChip" data-status="idle"><span class="av agent"><img src="img/agent-basic.png" alt=""></span><span class="dot" aria-hidden="true"></span><span id="agentText"></span></div>
+      <button type="button" class="btn ghost work-only" data-copy-link hidden></button>
     </div>
   </header>
 
@@ -52,7 +53,7 @@
     </aside>
   </div>
 </div>
-<div class="toast" id="toast" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
 <div id="modalRoot"></div>
 <script>
   (function () {
