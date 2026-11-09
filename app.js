@@ -834,6 +834,10 @@
   /* ---------- joining a room and live updates ---------- */
   async function enterRoom(rid, me = state.me) {
     const data = await Store.join(rid, me);   // nicknames are already unique across Relay (api/profile)
+    if (data.room && data.room.kind === 'legacy') {   // an old copy of the onboarding document: everyone belongs in the shared room
+      const shared = await Store.sharedRoom();
+      if (shared && shared !== rid) { location.replace(`/r/${shared}${location.search}`); return new Promise(() => {}); }
+    }
     state.me = me; saveMe(me); learn(me.userId, me.name, me.avatar);
     state.roomId = rid; state.viewing = ME();
     applySnapshot(data, true);

@@ -8,11 +8,13 @@ create table if not exists rooms (
   agent       jsonb not null default '{"state":"idle"}',   -- {state, by_id, by_name, section_id, since, token}
   calls       int  not null default 0,
   bots_on     boolean not null default false,
-  kind        text,                                          -- 'shared': the library's onboarding document (one per project)
+  kind        text,   -- 'shared': the library's onboarding document (one) · 'copy': a fresh demo copy · 'import': an imported file · 'legacy': an old copy, redirected to 'shared'
   created_at  timestamptz not null default now()
 );
 alter table rooms add column if not exists kind text;
 create unique index if not exists rooms_one_shared on rooms (kind) where kind = 'shared';
+-- copies of the onboarding document made before the shared room existed now forward to it
+update rooms set kind = 'legacy' where kind is null and title = 'New workspace onboarding proposal';
 
 create table if not exists sections (
   room_id         text not null references rooms(id) on delete cascade,

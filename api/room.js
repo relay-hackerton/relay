@@ -53,10 +53,10 @@ export async function sharedRoom(d = db) {
   }
 }
 
-export async function createRoom(d = db, document = undefined, kind = null) {
+export async function createRoom(d = db, document = undefined, kind = 'copy') {
   const roomId = shortId(6);
   if (document) {
-    await d.insert('rooms', [{ id: roomId, title: document.title }]);
+    await d.insert('rooms', [{ id: roomId, title: document.title, kind: 'import' }]);
     try {
       await insertSections(d, roomId, document.sections);
     } catch (error) {
