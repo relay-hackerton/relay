@@ -378,7 +378,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
 @keyframes typ { 50% { transform: translateY(-3px); opacity: .5; } }
 .composer { padding: 10px 14px 14px; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.composer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.composer-model { margin-left: auto; max-width: 100%; }
 .chip { font-size: 12px; height: 28px; padding: 0 12px; border-radius: var(--r-pill); border: 1px solid var(--line); background: rgba(255,255,255,.8); color: var(--ink-2); transition: all var(--fast); }
 .chip:hover { color: var(--blue); border-color: rgba(47,107,255,.5); background: #fff; }
 .box { display: flex; align-items: flex-end; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 7px 7px 7px 14px; transition: border-color var(--fast), box-shadow var(--fast); }
@@ -442,7 +444,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 
 .log-head { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; }
 .log-head .log-day { margin: 0; flex: 1; }
-.log-head select, .compose select, .disc-f select { font: inherit; font-size: 12.5px; height: 30px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line); background: #fff; color: var(--ink); }
+.log-head select, .compose select, .disc-f select { font: inherit; font-size: 12.5px; height: 30px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line); background-color: #fff; color: var(--ink); }
 
 .compose { border-radius: var(--r-lg); background: var(--paper); box-shadow: var(--shadow-paper); padding: 18px 18px 16px; display: grid; gap: 10px; animation: popin var(--normal) var(--ease); }
 .compose .h { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 14.5px; }
@@ -486,7 +488,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .disc-top span { font-size: 12.5px; color: var(--ink-2); }
 .disc-top .btn { margin-left: auto; flex: none; }
 .compose .h .spacer { flex: 1; }
-.compose .h label.inline { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.compose .h label.inline { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; min-width: 0; }
+.compose .h select { min-width: 0; }
 .compose label .hint { font-weight: 400; color: var(--ink-3); }
 .compose .lbl-row { font-size: 12px; font-weight: 600; color: var(--ink-2); display: flex; gap: 6px; align-items: baseline; }
 
@@ -688,10 +691,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .like.off:hover { color: var(--ink); border-color: var(--line); background: #fff; }
 .like.off:hover .emoji { filter: none; opacity: 1; }
 .chat-h { padding: 14px 18px 10px; }
-.lockbtn { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--ink-3); flex: none; align-self: center; transition: all var(--fast); }
+.lockbtn { min-height: 30px; padding: 0 8px; border-radius: var(--r-pill); display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); background: rgba(27,33,48,.05); flex: none; font-size: 12px; font-weight: 600; transition: all var(--fast); }
 .lockbtn:hover { color: var(--ink); background: rgba(27,33,48,.06); }
 .lockbtn.on { color: #7A5A00; background: #FFF6CC; }
-.lockbtn svg { width: 15px; height: 15px; }
+.lockbtn svg { width: 14px; height: 14px; }
 .readonly { margin: 10px 14px 14px; justify-content: center; font-weight: 600; }
 .modal.issue label:not(.radio) { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); margin-bottom: 10px; }
 .modal.issue input[type="text"], .modal.issue input:not([type]) { font: inherit; font-size: 13.5px; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--line); background: #fff; width: 100%; }
@@ -774,10 +777,31 @@ body:not(.on-home) .orb { animation: none; }
 .paper { contain: layout style; }
 
 /* model picker in my session header */
-.model-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); margin-right: 4px; }
-.model-pick select { font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); height: 28px; padding: 0 8px; border-radius: var(--r-pill); border: 1px solid var(--line); background: #fff; max-width: 150px; }
+.model-pick { display: inline-flex; max-width: 100%; }
+.model-pick select { font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); height: 28px; padding: 0 8px; border-radius: var(--r-pill); border: 1px solid var(--line); background-color: #fff; max-width: min(150px, 100%); }
 .msg .meta .via { color: var(--ink-3); }
 
 .modal.join .sub { margin-bottom: 14px; }
 .modal.join .avatar-pick { margin-bottom: 14px; }
 .type-caret { display: inline-block; width: 2px; height: 1em; margin-left: 1px; vertical-align: -2px; background: var(--agent-ink); animation: blink .8s steps(1) infinite; }
+
+select {
+  appearance: none;
+  padding-inline-end: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='m4 5.5 3 3 3-3' fill='none' stroke='%23525a6a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+:is(.log-head, .compose, .disc-f, .model-pick) select { padding-inline-end: 34px; background-color: #fff; }
+.file-field { display: grid; gap: 6px; min-width: 0; }
+.file-field .lbl-row { margin: 0; }
+.file-field .hint { color: var(--ink-2); font-size: 12px; }
+.file-input {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px;
+  padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff;
+  box-shadow: 0 1px 2px rgba(27,33,48,.06);
+}
+.file-input:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.file-input button { flex: none; min-height: 34px; font-size: 13px; font-weight: 600; }
+.file-input button:disabled { opacity: .5; cursor: default; }
+.file-input span { min-width: 0; color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

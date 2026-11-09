@@ -56,17 +56,18 @@ export function findContested({ sec, paras, recent, userId, preferId }) {
   return null;
 }
 
-async function loadContext(d, roomId, userId) {
-  const since = new Date(Date.now() - RECENT_MS).toISOString();
+async function loadContext(d, roomId, userId, checkedAt) {
+  const since = new Date(checkedAt ?? Date.now() - RECENT_MS).toISOString();
+  const timeFilter = checkedAt === undefined ? 'gte' : 'gt';
   const [rooms, sections, recent, discs, msgs] = await Promise.all([
     d.select('rooms', `id=${d.eq(roomId)}&select=id,bots_on`),
     d.select('sections', `room_id=${d.eq(roomId)}&order=num.asc`),
-    d.select('changes', `room_id=${d.eq(roomId)}&created_at=gte.${encodeURIComponent(since)}&order=created_at.desc&limit=20`),
+    d.select('changes', `room_id=${d.eq(roomId)}&created_at=${timeFilter}.${encodeURIComponent(since)}&order=created_at.desc&limit=20`),
     d.select('discussions', `room_id=${d.eq(roomId)}&select=id,n,section_id,title,title_en,status&order=n.asc`),
     d.select('messages', `room_id=${d.eq(roomId)}&user_id=${d.eq(userId)}&order=created_at.desc&limit=8`),
   ]);
   if (!rooms.length) throw new Error('room_not_found');
-  return { room: rooms[0], sections, recent, discs, openDiscs: discs.filter((x) => x.status === 'open'), history: msgs.reverse() };
+  return { room: rooms[0], sections, recent, checkedAt, discs, openDiscs: discs.filter((x) => x.status === 'open'), history: msgs.reverse() };
 }
 
 async function sayAgent(d, { roomId, userId, userName }, text, meta, id = uuid()) {
@@ -77,11 +78,14 @@ async function askClaude(deps, ctx, input, started) {
   const system = systemPrompt({ ...ctx, userName: input.userName, lang: input.lang });
   const messages = toTurns(ctx.history, input.text);
   let out = await deps.callClaude({ system, messages, tool: RESPOND_TOOL, model: input.model });
-  let err = validate(out, ctx.sections);
+  const check = (answer) => validate(answer, ctx.sections)
+    || (ctx.checkedAt !== undefined && answer.action !== 'none' ? 'A change recap must use action "none"' : null);
+  let err = check(out);
   if (err && Date.now() - started < 30000) {
     out = await deps.callClaude({ system: `${system}\n\nYOUR PREVIOUS ANSWER WAS REJECTED: ${err}. Answer again following the rules.`, messages, tool: RESPOND_TOOL, model: input.model, timeoutMs: Math.max(8000, DEADLINE_MS - (Date.now() - started) - 6000) });
-    err = validate(out, ctx.sections);
+    err = check(out);
   }
+  if (err && ctx.checkedAt !== undefined) return { action: 'none', reply: L(input.lang, "I couldn't summarize the changes. Try again.", '변경 내용을 요약하지 못했어요. 다시 요청해 주세요.') };
   if (err) return { action: 'clarify', reply: L(input.lang, "Sorry, I couldn't work out a clean edit for that. Could you say which section and what should change?", '죄송해요, 깔끔하게 고칠 방법을 못 찾았어요. 어느 섹션을 어떻게 바꿀지 조금 더 알려 주실래요?'), invalid: err };
   return out;
 }
@@ -100,13 +104,16 @@ function botVotes(room, disc, contested, requesterId, lang) {
 
 export async function runAgent(input, deps = {}) {
   const d = deps.db || realDb; const dz = { db: d, callClaude: deps.callClaude || realClaude };
-  const { roomId, userId, text } = input;
+  const { roomId, userId, text, checkedAt } = input;
   const userName = String(input.userName || 'Guest').slice(0, 40);
   const lang = input.lang === 'ko' ? 'ko' : 'en';
   const who = { roomId, userId, userName };
   const model = pickModel(input.model) || (deps.callClaude ? { id: 'test', label: 'test', provider: 'test' } : null);
   const modelTag = model ? { id: model.id, label: model.label } : null;
   if (!roomId || !userId || !text) return { status: 400, body: { error: 'roomId, userId and text are required' } };
+  if (checkedAt !== undefined && (!Number.isSafeInteger(checkedAt) || checkedAt < 0 || checkedAt > Date.now() + 60000)) {
+    return { status: 400, body: { error: 'Invalid document check time' } };
+  }
   if (String(text).length > MAX_TEXT) return { status: 400, body: { error: `text over ${MAX_TEXT} characters` } };
 
   const lock = await acquire(roomId, userId, userName, d);
@@ -118,8 +125,16 @@ export async function runAgent(input, deps = {}) {
       return { ok: true, limited: true };
     }
     for (let attempt = 0; attempt < 2; attempt++) {
-      const ctx = await loadContext(d, roomId, userId);
+      const ctx = await loadContext(d, roomId, userId, checkedAt);
+      if (checkedAt !== undefined && !ctx.recent.length) {
+        await sayAgent(d, who, L(lang, 'No document changes since your last check.', '지난번 확인 이후 문서 변경이 없어요.'), { action: 'none' });
+        return { ok: true, action: 'none' };
+      }
       const out = await askClaude(dz, ctx, { ...input, userName, lang, model }, started);
+      if (checkedAt !== undefined) {
+        await sayAgent(d, who, out.reply.trim(), { action: 'none', model: modelTag });
+        return { ok: true, action: 'none' };
+      }
       if (out.action === 'discuss') {
         const open = out.sectionId && ctx.openDiscs.find((x) => x.section_id === out.sectionId);
         const compose = open ? null : { sectionId: out.sectionId || null, title: out.discussion.title, titleEn: out.discussion.titleEn || out.discussion.title, question: out.discussion.question || '',

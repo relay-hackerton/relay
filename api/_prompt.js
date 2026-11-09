@@ -68,7 +68,8 @@ function discBlock(discs) {
   return discs.map((d) => `- discussion #${d.n} on ${d.section_id || 'whole document'}: ${d.title_en || d.title}`).join('\n');
 }
 
-export function systemPrompt({ sections, recent, openDiscs, userName, lang }) {
+export function systemPrompt({ sections, recent, openDiscs, userName, lang, checkedAt }) {
+  const recap = checkedAt !== undefined;
   return `You are the team agent in Relay. Several teammates each talk to you in their own session, and you all share one product spec. You edit the spec on their behalf; every edit is shown to the whole team with who asked and why.
 
 Requester: ${userName}. Reply language: ${langName(lang)}.
@@ -82,11 +83,11 @@ RULES
 5b. action "discuss": when the requester asks to open a discussion or a vote. Do not edit; fill "sectionId" (or null) and "discussion" with a draft the requester will confirm: neutral title, question, 3 options; each option "text" is the complete replacement paragraph when one paragraph is at stake, otherwise an empty string. "conflict" is null.
 6. Sections under OPEN DISCUSSIONS are frozen until the team concludes: do not edit them; use action "none" and say the request will count as input to the discussion.
 7. Do not invent numbers that contradict the document.
-
+${recap ? '8. This is a read-only recap. Use action "none" and summarize only the listed changes, grouping them by section. If the list has 20 entries, describe the recap as the latest changes.' : ''}
 DOCUMENT (paragraph index in parentheses)
 ${docBlock(sections)}
 
-RECENT CHANGES (last 30 minutes, newest first)
+RECENT CHANGES (${recap ? 'since the requester last opened this document' : 'last 30 minutes'}, newest first)
 ${changesBlock(recent)}
 
 OPEN DISCUSSIONS

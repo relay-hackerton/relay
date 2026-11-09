@@ -103,6 +103,30 @@ const renamed = await runProfile({ name: 'Yoorae K', userId: p1.userId }, deps);
 assert.equal((await runProfile({ userId: p1.userId }, deps)).name, 'Yoorae K');
 assert.equal((await runProfile({ name: 'x' }, deps)).body.error, 'length');
 
+// A recap uses the previous check as a strict cutoff, even for changes older than 30 minutes.
+const { db: recapDb, T: recapTables } = mockDb();
+const recapRoom = await createRoom(recapDb);
+const checkedAt = Date.now() - 90 * 60 * 1000;
+recapTables.changes.length = 0;
+for (const [summary, timestamp] of [
+  ['Before check', checkedAt - 1],
+  ['At check', checkedAt],
+  ['After check', checkedAt + 5 * 60 * 1000],
+]) {
+  await recapDb.insert('changes', [{ room_id: recapRoom, section_id: 's1', summary, created_at: new Date(timestamp).toISOString() }]);
+}
+const recap = await runAgent({ roomId: recapRoom, userId: 'u_reader', text: 'What changed?', checkedAt }, {
+  db: recapDb,
+  callClaude: async ({ system }) => {
+    assert.match(system, /After check/);
+    assert.doesNotMatch(system, /Before check|At check/);
+    return { action: 'none', reply: 'The background changed.' };
+  },
+});
+assert.equal(recap.action, 'none');
+assert.equal(recapTables.messages.at(-1).text, 'The background changed.');
+assert.equal(recapTables.changes.length, 3);
+
 // 9. helpers
 assert.ok(validate({ action: 'edit', reply: 'x', sectionId: 's9', paras: ['a'] }, T.sections).startsWith('sectionId'));
 assert.equal(findContested({ sec: { id: 's1', paras: ['a', 'b'] }, paras: ['a', 'c'], recent: [], userId: 'u' }), null);

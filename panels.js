@@ -23,7 +23,7 @@ window.RelayPanels = (R) => {
   function renderCompose(d) {
     return `
       <form class="compose" id="compose">
-        <div class="h">${t('compose_title')}<span class="spacer"></span><label class="inline">${t('target')}<select id="dSection"><option value="">${t('target_none')}</option>${state.sections.map((x) => `<option value="${x.id}" ${d.sectionId === x.id ? 'selected' : ''}>${esc(secLabel(x.id))}</option>`).join('')}</select></label></div>
+        <div class="h"><label class="inline">${t('section_label')}<select id="dSection"><option value="">${t('target_none')}</option>${state.sections.map((x) => `<option value="${x.id}" ${d.sectionId === x.id ? 'selected' : ''}>${esc(secLabel(x.id))}</option>`).join('')}</select></label></div>
         <label>${t('topic')}<input id="dTitle" maxlength="80" value="${esc(d.title)}" placeholder="${esc(t('topic_ph'))}"></label>
         <label>${t('question')}<textarea id="dQuestion" maxlength="400" placeholder="${esc(t('question_ph'))}">${esc(d.question)}</textarea></label>
         <div class="lbl-row">${t('options')} <span class="hint">${t('options_hint')}</span></div>

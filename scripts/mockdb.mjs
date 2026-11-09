@@ -11,7 +11,7 @@ export function mockDb() {
     }
     return { f, o };
   };
-  const match = (row, f) => f.every(({ k, op, val }) => (op === 'eq' ? String(row[k]) === val : op === 'ilike' ? String(row[k]).toLowerCase() === val.replace(/\\(.)/g, '$1').toLowerCase() : op === 'gte' ? new Date(row[k]) >= new Date(val) : true));
+  const match = (row, f) => f.every(({ k, op, val }) => (op === 'eq' ? String(row[k]) === val : op === 'ilike' ? String(row[k]).toLowerCase() === val.replace(/\\(.)/g, '$1').toLowerCase() : op === 'gte' ? new Date(row[k]) >= new Date(val) : op === 'gt' ? new Date(row[k]) > new Date(val) : true));
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const db = {
     eq: (v) => `eq.${encodeURIComponent(v)}`,

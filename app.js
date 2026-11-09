@@ -273,19 +273,26 @@
   async function loadModels() {
     try { const r = await fetch('/api/models', { cache: 'no-store' }); const j = await r.json(); state.models = j.models || []; state.defaultModel = j.default; }
     catch (e) { state.models = []; }
-    if (state.view === 'doc') renderChatHead();
+    renderModelPicker();
+  }
+  function renderModelPicker() {
+    const host = $('#composerModel');
+    host.innerHTML = modelPicker();
+    host.hidden = state.models.length === 0;
   }
   function renderChatHead() {
     const id = state.viewing; const mine = id === ME();
-    $('#chatHead').innerHTML = `${avatar(id)}<div class="ttl"><h2>${esc(name(id))}</h2></div>
-      <span class="head-acts">${mine ? modelPicker() : `<button class="btn ghost" data-user="${ME()}">${t('back_to_mine')}</button>`}<button class="iconbtn sm" data-collapse title="${t('collapse')}">${icon('panel')}</button></span>`;
+    const priv = state.myPrivate;
+    const visibility = `<button type="button" class="lockbtn ${priv ? 'on' : ''}" id="lockBtn" data-lock aria-pressed="${priv}" aria-label="${esc(t('lock_label'))}" title="${esc(t(priv ? 'lock_private' : 'lock_public'))}">${icon(priv ? 'lock' : 'unlock')}${t(priv ? 'private_badge' : 'session_public')}</button>`;
+    patch($('#chatHead'), `${avatar(id)}<div class="ttl"><h2>${esc(name(id))}</h2></div>
+      <span class="head-acts">${mine ? visibility : `<button class="btn ghost" data-user="${ME()}">${t('back_to_mine')}</button>`}<button class="iconbtn sm" data-collapse title="${t('collapse')}">${icon('panel')}</button></span>`);
   }
   function renderComposer() {
-    const mine = state.viewing === ME(); const priv = state.myPrivate;
+    const mine = state.viewing === ME();
     $('#composer').hidden = !mine; $('#readonly').hidden = mine;
     if (!mine) $('#readonly').innerHTML = `${icon('lock')}<span>${t('readonly_badge')}</span>`;
-    const lb = $('#lockBtn'); if (lb) { lb.innerHTML = icon(priv ? 'lock' : 'unlock'); lb.title = priv ? t('lock_private') : t('lock_public'); lb.setAttribute('aria-pressed', priv); lb.setAttribute('aria-label', lb.title); lb.classList.toggle('on', priv); lb.dataset.lock = '1'; }
     $('.send').disabled = state.pending;
+    $$('#chips button').forEach((button) => { button.disabled = state.pending; });
     $('#composer').classList.toggle('busy', state.pending);
   }
   function setCollapsed(on) { state.collapsed = on; $('.main').classList.toggle('collapsed', on); $('#rail').hidden = !on; renderRail(); }
@@ -359,8 +366,8 @@
   function localSay(html) { state.localMsgs.push({ role: 'agent', html, at: new Date() }); renderChat(); }
 
   function renderChips() {
-    const chips = importedRoom() ? [t('import_suggestion')] : t('chips');
-    $('#chips').innerHTML = chips.map((c) => `<button type="button" class="chip">${esc(c)}</button>`).join('');
+    $('#chips').innerHTML = ['summary', 'changes'].map((id) =>
+      `<button type="button" class="chip" data-suggestion="${id}" ${state.pending ? 'disabled' : ''}>${t(`chip_${id}`)}</button>`).join('');
   }
   function renderCtx() {
     $('#ctx').innerHTML = state.ctx ? `<span class="ctx">${esc(t('ctx_about', { sec: secLabel(state.ctx) }))}<button type="button" data-ctx-clear aria-label="${t('ctx_clear')}">${icon('close')}</button></span>` : '';
@@ -371,13 +378,13 @@
   function catchUp(since) {
     setTimeout(() => { if (Store.lastEventAt() < since && state.view === 'doc') Store.snapshot().then((d) => applySnapshot(d, false)).catch(() => {}); }, 1500);
   }
-  async function send(text) {
+  async function send(text, { wholeDocument = false, checkedAt } = {}) {
     if (state.viewing !== ME() || state.pending) return;
-    const body = (state.ctx ? t('ask_prefix', { sec: secLabel(state.ctx) }) : '') + text;
+    const body = (state.ctx && !wholeDocument ? t('ask_prefix', { sec: secLabel(state.ctx) }) : '') + text;
     state.pending = true; state.ctx = null; renderCtx(); renderComposer(); renderChat();
     Store.setPresence({ typing: false });
     let res;
-    try { res = await Store.say(body.slice(0, 500), { lang, model: (currentModel() || {}).id, onQueued: (q) => { state.queued = q; renderAgent(); renderChat(); } }); }
+    try { res = await Store.say(body.slice(0, 500), { lang, model: (currentModel() || {}).id, checkedAt, onQueued: (q) => { state.queued = q; renderAgent(); renderChat(); } }); }
     catch (e) { res = { error: e.message }; }
     state.pending = false; state.queued = false;
     catchUp(Date.now() - 500);
@@ -674,17 +681,26 @@
     $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><form class="modal issue" id="issueForm" role="dialog" aria-modal="true" aria-labelledby="iTitle">
       <h2 id="iTitle">${t('issue_new')}</h2>
       <label>${t('issue_title')}<input id="iName" maxlength="80" placeholder="${esc(t('issue_title_ph'))}" autocomplete="off"></label>
-      <label>${t('issue_goal')}<input id="iGoal" maxlength="140" placeholder="${esc(t('issue_goal_ph'))}" autocomplete="off"></label>
-      <div class="lbl-row">${t('issue_members')}</div>
-      <div class="member-pick">${PEOPLE.map((id) => `<button type="button" class="pick ${id === 'me' ? 'on' : ''}" data-pick="${id}" aria-pressed="${id === 'me'}">${face(id).replace('av sm', 'av')}<span>${esc(id === 'me' ? (state.me ? state.me.name : MEMBERS.me.name) : MEMBERS[id].name)}</span></button>`).join('')}</div>
+      <label data-template-field>${t('issue_goal')}<input id="iGoal" maxlength="140" placeholder="${esc(t('issue_goal_ph'))}" autocomplete="off"></label>
+      <div class="lbl-row" data-template-field>${t('issue_members')}</div>
+      <div class="member-pick" data-template-field>${PEOPLE.map((id) => `<button type="button" class="pick ${id === 'me' ? 'on' : ''}" data-pick="${id}" aria-pressed="${id === 'me'}">${face(id).replace('av sm', 'av')}<span>${esc(id === 'me' ? (state.me ? state.me.name : MEMBERS.me.name) : MEMBERS[id].name)}</span></button>`).join('')}</div>
       <div class="lbl-row">${t('issue_start')}</div>
       <div class="start-pick"><label class="radio"><input type="radio" name="start" value="template" checked>${t('start_template')}</label><label class="radio"><input type="radio" name="start" value="blank">${t('start_blank')}</label><label class="radio"><input type="radio" name="start" value="import">${t('start_import')}</label></div>
-      <label id="importFileLabel" hidden>${t('import_file')}<input id="iFile" type="file" accept=".md,.txt,text/markdown,text/plain"></label>
-      <div class="f"><span class="err" id="iErr"></span><span class="spacer"></span><button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button><button type="submit" class="btn primary">${t('create')}</button></div>
+      <div id="importFileLabel" class="file-field" role="group" aria-labelledby="fileLabel" hidden>
+        <span id="fileLabel" class="lbl-row">${t('import_file')}</span>
+        <div class="file-input">
+          <button type="button" id="pickFile" data-pick-file aria-describedby="fileFormats">${t('choose_file')}</button>
+          <span id="fileName" aria-live="polite">${t('no_file')}</span>
+          <input id="iFile" type="file" accept=".md,.txt,.docx,.pdf" hidden>
+        </div>
+        <span id="fileFormats" class="hint">.md, .txt, .docx, .pdf · 10 MB</span>
+      </div>
+      <div class="f"><span class="err" id="iErr" role="alert"></span><span class="spacer"></span><button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button><button type="submit" class="btn primary">${t('create')}</button></div>
     </form></div>`;
     setTimeout(() => $('#iName') && $('#iName').focus(), 30);
   }
   async function createIssue() {
+    if (state.landing.busy) return;
     const title = $('#iName').value.trim();
     if (!title) { $('#iErr').textContent = t('err_issue_title'); $('#iName').focus(); return; }
     const start = $('#issueForm input[name="start"]:checked').value;
@@ -699,20 +715,27 @@
   }
 
   async function importIssue(title) {
-    const form = $('#issueForm');
     const file = $('#iFile').files[0];
-    if (!file || !/\.(md|txt)$/i.test(file.name)) { $('#iErr').textContent = t('import_invalid'); return; }
-    if (file.size > 120000) { $('#iErr').textContent = t('import_large'); return; }
-    const submit = form.querySelector('[type="submit"]');
-    if (submit.disabled) return;
+    const error = $('#iErr');
+    if (!file) { error.textContent = t('import_invalid'); return; }
+    const submit = $('#issueForm [type="submit"]');
+    const pick = $('#pickFile');
     submit.disabled = true;
+    pick.disabled = true;
     state.landing.busy = true;
+    error.textContent = '';
     try {
-      const rid = await Store.createRoom({ title, text: await file.text(), markdown: /\.md$/i.test(file.name) });
+      const { readDocument } = await import('./document-import.js');
+      const document = await readDocument(file);
+      const rid = await Store.createRoom({ title, ...document });
       location.assign(`/r/${rid}${location.search}`);
     } catch (e) {
-      $('#iErr').textContent = e.message === 'document_too_large' ? t('import_large') : e.message === 'invalid_document' ? t('import_invalid') : t('err_generic', { err: e.message });
+      const importErrors = ['import_invalid', 'import_large', 'import_file_large', 'import_unreadable', 'import_no_text'];
+      error.textContent = importErrors.includes(e.message) ? t(e.message)
+        : e.message === 'document_too_large' ? t('import_large')
+        : e.message === 'invalid_document' ? t('import_invalid') : t('err_generic', { err: e.message });
       submit.disabled = false;
+      pick.disabled = false;
       state.landing.busy = false;
     }
   }
@@ -902,8 +925,22 @@
   });
   setInterval(() => { if (state.view === 'doc') renderAgent(); }, 5000);   // a stuck lock (crashed function) times out visually
 
+  /* A check is opening the document. Keep the previous visit as the cutoff for this visit. */
+  function recordDocumentCheck() {
+    const now = Date.now();
+    const key = `relay.checkedAt.${ME()}.${state.roomId}`;
+    state.checkedAt = state.openedAt || now;
+    state.openedAt = now;
+    try {
+      const previous = Number(localStorage.getItem(key));
+      if (Number.isSafeInteger(previous) && previous > 0 && previous <= now) state.checkedAt = previous;
+      localStorage.setItem(key, String(now));
+    } catch (e) { /* private mode */ }
+  }
+
   /* ---------- views ---------- */
   function showView(v) {
+    if (v === 'doc' && state.view !== 'doc') recordDocumentCheck();
     state.view = v;
     $('#home').hidden = v !== 'home'; $('.main').hidden = v !== 'doc';
     $$('.work-only').forEach((el) => { el.hidden = v !== 'doc'; });
@@ -928,16 +965,18 @@
 
   /* ---------- events (delegated) ---------- */
   document.addEventListener('click', (e) => {
-    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-copy-link],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],[data-page],[data-zoom],[data-lock],[data-open-unit],[data-add-issue],[data-pick],[data-modal-close],[data-overlay],[data-reset],[data-like],[data-open-disc],[data-compose-cancel],.chip,.tab');
+    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-suggestion],[data-home],[data-lang],[data-bot],[data-copy-link],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],[data-page],[data-zoom],[data-lock],[data-open-unit],[data-add-issue],[data-pick-file],[data-pick],[data-modal-close],[data-overlay],[data-reset],[data-like],[data-open-disc],[data-compose-cancel],.tab');
     if (!t0) { if (state.exportOpen) { state.exportOpen = false; renderViewer(); } if (!e.target.closest('.pop') && state.openPop) { state.openPop = null; renderDoc(); } return; }
     const d = t0.dataset;
     if (d.lang) return setLang(d.lang);
     if (t0.classList.contains('tab')) { const tab = t0.id.replace('tab', '').toLowerCase(); setTab(tab); if (tab === 'disc') P.renderDisc(); return; }
-    if (t0.classList.contains('chip')) return send(t0.textContent);
+    if (d.suggestion === 'summary') return send(t('ask_summary'), { wholeDocument: true });
+    if (d.suggestion === 'changes') return send(t('ask_checked_changes'), { wholeDocument: true, checkedAt: state.checkedAt });
     if (t0.hasAttribute('data-modal-close')) { if (!$('#landForm')) closeModal(); return; }
     if (t0.hasAttribute('data-overlay')) { if (e.target === t0 && !$('#landForm')) closeModal(); return; }
     if (t0.hasAttribute('data-reset')) { closeModal(); history.pushState(null, '', `/${location.search}`); state.roomId = null; return startRoom(); }
     if (t0.hasAttribute('data-add-issue')) return openIssueModal();
+    if (t0.hasAttribute('data-pick-file')) return $('#iFile').click();
     if (d.pick) { const set = state.issueDraft.members; if (d.pick !== 'me') { if (set.has(d.pick)) set.delete(d.pick); else set.add(d.pick); } t0.classList.toggle('on', set.has(d.pick)); t0.setAttribute('aria-pressed', set.has(d.pick)); return; }
     if (d.openUnit) {
       const imported = state.importedRooms.find((u) => u.id === d.openUnit);
@@ -947,7 +986,7 @@
       return toast(t('toast_only_first'));
     }
     if (t0.hasAttribute('data-home')) return go('/');
-    if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; Store.setPresence({ private: state.myPrivate }); renderPresence(); renderComposer(); return; }
+    if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; Store.setPresence({ private: state.myPrivate }); renderPresence(); renderChatHead(); return; }
     if (d.page) { state.page = Math.min(2, Math.max(1, state.page + Number(d.page))); renderViewer(); return gotoPage(state.page); }
     if (d.zoom) { state.zoom = Math.min(130, Math.max(80, state.zoom + Number(d.zoom))); return renderDoc(); }
     if (t0.hasAttribute('data-bot')) return bringTeammate();
@@ -1002,7 +1041,11 @@
       $('#importFileLabel').hidden = !importing;
       $$('#issueForm [data-template-field]').forEach((field) => { field.hidden = importing; });
     }
-    if (e.target.id === 'iFile' && e.target.files[0] && !$('#iName').value.trim()) $('#iName').value = e.target.files[0].name.replace(/\.[^.]+$/, '').slice(0, 80);
+    if (e.target.id === 'iFile') {
+      const file = e.target.files[0];
+      $('#fileName').textContent = file ? file.name : t('no_file');
+      if (file && !$('#iName').value.trim()) $('#iName').value = file.name.replace(/\.[^.]+$/, '').slice(0, 80);
+    }
     if (e.target.id === 'modelPick') { state.model = e.target.value; try { localStorage.setItem('relay.model', state.model); } catch (err) { /* private mode */ } }
     if (e.target.id === 'logCat') { state.logCat = e.target.value; renderLog(); }
     if (e.target.id === 'logMember') { state.logMember = e.target.value; renderLog(); }
