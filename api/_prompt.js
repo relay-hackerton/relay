@@ -172,24 +172,46 @@ async function callOpenAI({ system, messages, tool, model, timeoutMs = 40000, ma
   } finally { clearTimeout(timer); }
 }
 
+/* Anthropic Messages API. Forced tool_choice when the model allows it; models that reject it (newer ones)
+   get tool_choice "auto" with an instruction to call the tool, and one nudge if they answer in text. */
+const NO_FORCED_TOOL = new Set();
 async function callAnthropic({ system, messages, tool, model, timeoutMs = 40000, maxTokens = 2500 }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY missing');
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal: ctrl.signal,
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages, tools: [tool], tool_choice: { type: 'tool', name: tool.name } }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(`anthropic ${r.status}: ${(j && j.error && j.error.message) || 'error'}`);
-    const block = (j.content || []).find((c) => c.type === 'tool_use' && c.name === tool.name);
-    if (!block) throw new Error('anthropic: no tool_use in response');
-    return block.input;
-  } catch (e) {
-    if (e.name === 'AbortError') throw new Error(`anthropic: timed out after ${timeoutMs / 1000}s`);
-    throw e;
-  } finally { clearTimeout(timer); }
+  const started = Date.now();
+  const post = async (forced, msgs) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), Math.max(4000, timeoutMs - (Date.now() - started)));
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', signal: ctrl.signal,
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model, max_tokens: maxTokens, messages: msgs, tools: [tool],
+          system: forced ? system : `${system}\n\nAlways answer by calling the "${tool.name}" tool exactly once. Do not answer in plain text.`,
+          tool_choice: forced ? { type: 'tool', name: tool.name } : { type: 'auto' },
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = (j && j.error && j.error.message) || 'error';
+        if (forced && r.status === 400 && /tool_choice/i.test(msg)) { NO_FORCED_TOOL.add(model); return { retryAuto: true }; }
+        throw new Error(`anthropic ${r.status}: ${msg}`);
+      }
+      return { j };
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error(`anthropic: timed out after ${Math.round(timeoutMs / 1000)}s`);
+      throw e;
+    } finally { clearTimeout(timer); }
+  };
+  let res = await post(!NO_FORCED_TOOL.has(model), messages);
+  if (res.retryAuto) res = await post(false, messages);
+  let block = (res.j.content || []).find((c) => c.type === 'tool_use' && c.name === tool.name);
+  if (!block) {
+    const said = (res.j.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
+    res = await post(false, [...messages, { role: 'assistant', content: said || '(no answer)' }, { role: 'user', content: `Call the "${tool.name}" tool now with your answer.` }]);
+    block = (res.j.content || []).find((c) => c.type === 'tool_use' && c.name === tool.name);
+  }
+  if (!block) throw new Error('anthropic: no tool_use in response');
+  return block.input;
 }
