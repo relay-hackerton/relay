@@ -8,8 +8,11 @@ create table if not exists rooms (
   agent       jsonb not null default '{"state":"idle"}',   -- {state, by_id, by_name, section_id, since, token}
   calls       int  not null default 0,
   bots_on     boolean not null default false,
+  kind        text,                                          -- 'shared': the library's onboarding document (one per project)
   created_at  timestamptz not null default now()
 );
+alter table rooms add column if not exists kind text;
+create unique index if not exists rooms_one_shared on rooms (kind) where kind = 'shared';
 
 create table if not exists sections (
   room_id         text not null references rooms(id) on delete cascade,

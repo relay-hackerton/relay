@@ -1,5 +1,6 @@
 /* POST /api/room { document? | shared? } → { roomId }.
-   { shared: true } → the one onboarding room everybody opens from the library (created once, same link for all).
+   { shared: true } → the one onboarding room everybody opens from the library: created once with a random id
+   like any other room (rooms.kind = 'shared', unique), then everyone gets that same link.
    An empty request starts a fresh copy of the demo; { document } imports a file. */
 import { db, handler, newId, shortId, uuid } from './_lib.js';
 import { DOC_TITLE, SECTIONS, HISTORY } from './_seed.js';
@@ -41,19 +42,19 @@ function insertSections(d, roomId, sections, last = {}) {
   })));
 }
 
-export const SHARED_ROOM = 'onboarding';
-
 /* the library's onboarding document: one room for everyone, seeded on first use */
 export async function sharedRoom(d = db) {
-  const found = await d.select('rooms', `id=${d.eq(SHARED_ROOM)}&select=id`);
-  if (found && found.length) return SHARED_ROOM;
-  try { await createRoom(d, undefined, SHARED_ROOM); }
-  catch (error) { if (!/23505|duplicate|409/.test(String(error.message))) throw error; }   // someone else created it a moment ago
-  return SHARED_ROOM;
+  const find = async () => { const r = await d.select('rooms', 'kind=eq.shared&select=id&limit=1'); return r && r[0] ? r[0].id : null; };
+  const found = await find(); if (found) return found;
+  try { return await createRoom(d, undefined, 'shared'); }
+  catch (error) {
+    if (!/23505|duplicate|409/.test(String(error.message))) throw error;
+    return find();   // someone else created it a moment ago: the unique index let only one through
+  }
 }
 
-export async function createRoom(d = db, document = undefined, id = undefined) {
-  const roomId = id || shortId(6);
+export async function createRoom(d = db, document = undefined, kind = null) {
+  const roomId = shortId(6);
   if (document) {
     await d.insert('rooms', [{ id: roomId, title: document.title }]);
     try {
@@ -66,7 +67,7 @@ export async function createRoom(d = db, document = undefined, id = undefined) {
     return roomId;
   }
   const now = Date.now();
-  await d.insert('rooms', [{ id: roomId, title: DOC_TITLE }]);
+  await d.insert('rooms', [{ id: roomId, title: DOC_TITLE, ...(kind ? { kind } : {}) }]);
   const changes = [], messages = [], last = {};
   for (const h of HISTORY) {
     const at = (offsetSec) => new Date(now - h.minutesAgo * 60000 + offsetSec * 1000).toISOString();

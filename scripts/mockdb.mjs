@@ -24,6 +24,7 @@ export function mockDb() {
     async insert(table, rows) {
       const now = Date.now();
       const out = rows.map((r, i) => ({ created_at: new Date(now + i).toISOString(), ...(['messages', 'comments'].includes(table) ? { id: randomUUID() } : {}), ...(table === 'rooms' ? { agent: { state: 'idle' }, calls: 0, bots_on: false } : {}), ...clone(r) }));
+      if (table === 'rooms') for (const r of out) if (T.rooms.some((x) => x.id === r.id || (r.kind === 'shared' && x.kind === 'shared'))) throw new Error('db 409: duplicate key 23505');
       if (table === 'votes') for (const r of out) if (T.votes.some((v) => v.discussion_id === r.discussion_id && v.user_id === r.user_id)) throw new Error('duplicate vote');
       T[table].push(...out); return clone(out);
     },
