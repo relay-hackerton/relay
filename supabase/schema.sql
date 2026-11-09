@@ -13,8 +13,8 @@ create table if not exists rooms (
 );
 alter table rooms add column if not exists kind text;
 create unique index if not exists rooms_one_shared on rooms (kind) where kind = 'shared';
--- copies of the onboarding document made before the shared room existed now forward to it
-update rooms set kind = 'legacy' where kind is null and title = 'New workspace onboarding proposal';
+-- copies of the onboarding document made before the shared room existed were removed on 2026-11-09:
+-- delete from rooms where kind is null and title = 'New workspace onboarding proposal';
 
 create table if not exists sections (
   room_id         text not null references rooms(id) on delete cascade,

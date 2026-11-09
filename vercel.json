@@ -1,5 +1,28 @@
 {
-  "functions": { "api/*.js": { "maxDuration": 60 } },
-  "rewrites": [{ "source": "/r/:id", "destination": "/index.html" }],
-  "headers": [{ "source": "/api/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }]
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/r/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/r/:id/",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    }
+  ]
 }

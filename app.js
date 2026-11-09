@@ -776,14 +776,17 @@
     L.busy = false;
     if (!r || !r.ok) return openNameModal(r && r.error === 'taken' ? t('nick_taken') : r && r.error === 'length' ? t('nick_len') : t('err_generic', { err: (r && r.error) || '?' }));
     setMe(r); closeModal();
-    const rid = roomFromPath(); if (rid) joinRoom(rid); else renderHome();
+    booted = true; route();
   }
   function setMe(p) { state.me = { userId: p.userId, name: p.name, avatar: p.avatar }; saveMe(state.me); learn(p.userId, p.name, p.avatar); }
   /* the live card at "/" makes a fresh room; inside a room it just opens the document */
   /* ---------- routing: "/" is the library, "/r/:id" is a room; back/forward move between them without a reload ---------- */
   function go(path) { if (location.pathname !== path) history.pushState(null, '', path + location.search); return route(); }
+  let booted = false;   // back/forward before the nickname check finishes waits for it
   function route() {
+    if (!booted) return;
     const rid = roomFromPath();
+    if (rid && location.pathname !== `/r/${rid}`) history.replaceState(null, '', `/r/${rid}${location.search}`);   // /r/ABC/ → /r/abc
     if (!rid) return showView('home');
     if (!state.me) return openNameModal();
     if (rid === state.roomId) return showView('doc');
@@ -1075,17 +1078,15 @@
   loadModels();
   (async () => {
     try { ['relay.private', 'relay.importedRooms'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
-    const rid = roomFromPath();
     showView('home');
     if (!Store.configured()) return toast(t('land_err_conf'));
     const saved = loadMe();
-    if (!saved) { forgetMe(); return openNameModal(); }
+    if (!saved) { forgetMe(); booted = true; return openNameModal(); }
     /* the nickname lives on the server; a browser that remembers someone unknown (or renamed) is corrected here */
     let r; try { r = await Store.profile({ userId: saved.userId }); } catch (e) { r = { error: e.message }; }
     if (r && r.ok) setMe(r);
-    else if (r && r.error === 'not_found') { forgetMe(); return openNameModal(); }
+    else if (r && r.error === 'not_found') { forgetMe(); booted = true; return openNameModal(); }
     else setMe(saved);   // network trouble: keep going with what we have
-    renderHome();
-    if (rid) joinRoom(rid);
+    booted = true; route();   // the URL now, not the one at load: back/forward may have moved it meanwhile
   })();
 })();
