@@ -15,12 +15,14 @@
   }
   class Channel {
     constructor(name, opts) { this.room = name.replace(/^room:/, ''); this.key = opts.config.presence.key; this.subs = []; this.presence = {}; this.syncs = []; }
-    on(kind, filter, cb) { if (kind === 'presence') this.syncs.push(cb); else this.subs.push({ table: filter.table, cb }); return this; }
+    on(kind, filter, cb) { if (kind === 'presence') { if (filter.event === 'sync') this.syncs.push(cb); } else if (kind === 'broadcast') (this.bc ||= []).push({ event: filter.event, cb }); else this.subs.push({ table: filter.table, cb }); return this; }
+    send(msg) { return post('/mock/broadcast', { room: this.room, event: msg.event, payload: msg.payload }); }
     subscribe(cb) {
       this.es = new EventSource(`/mock/events?room=${encodeURIComponent(this.room)}`);
       this.es.onmessage = (m) => {
         const ev = JSON.parse(m.data);
         if (ev.presence) { this.presence = ev.presence; this.syncs.forEach((f) => f()); return; }
+        if (ev.broadcast) { (this.bc || []).filter((x) => x.event === ev.broadcast.event).forEach((x) => x.cb({ payload: ev.broadcast.payload })); return; }
         this.subs.filter((s) => s.table === ev.table).forEach((s) => s.cb({ eventType: ev.eventType, new: ev.row, old: ev.row }));
       };
       this.es.onopen = () => cb('SUBSCRIBED');

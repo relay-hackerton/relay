@@ -5,6 +5,14 @@ window.Store = (() => {
   const sb = cfg.supabaseUrl && cfg.supabaseAnonKey && window.supabase ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey) : null;
   const handlers = {};
   let channel = null, roomId = null, me = null, presence = {}, buffering = true, buffer = [];
+  /* Presence (who is here) is rate-limited by Supabase to a few updates per 30 s per client, so it only carries
+     identity. Where people are and what they type (cursor, typing, editing, draft) travels as Broadcast, throttled. */
+  const TAB = Math.random().toString(36).slice(2, 10);
+  const IDENTITY = ['userId', 'tabId', 'name', 'avatar', 'private'];
+  let live = {};             // my live state
+  const others = {};         // tabId → { ...live state, at }
+  const LIVE_TTL = 20000;
+  let lastEvent = 0;   // last database change that arrived over realtime
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function emit(kind, payload) { (handlers[kind] || []).forEach((cb) => { try { cb(payload); } catch (e) { console.error(e); } }); }
@@ -21,24 +29,49 @@ window.Store = (() => {
   }
 
   function presenceList() {
-    return Object.values(channel ? channel.presenceState() : {}).map((arr) => arr[arr.length - 1]).filter(Boolean);
+    const now = Date.now();
+    return Object.values(channel ? channel.presenceState() : {}).map((arr) => arr[arr.length - 1]).filter(Boolean)
+      .map((p) => { const l = others[p.tabId]; return l && now - l.at < LIVE_TTL ? { ...p, ...l } : p; });
   }
+  let emitTimer = null;
+  const emitPresence = () => { if (emitTimer) return; emitTimer = setTimeout(() => { emitTimer = null; emit('presence', presenceList()); }, 60); };
+  /* live state: at most ~5 broadcasts a second, plus a heartbeat so late joiners see where I am */
+  let sendTimer = null, lastSent = 0, lastLive = '';
+  function sendLive(force = false) {
+    if (!channel) return;
+    const key = JSON.stringify(live);
+    if (!force && key === lastLive) return;
+    const wait = Math.max(0, 200 - (Date.now() - lastSent));
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(() => {
+      lastSent = Date.now(); lastLive = JSON.stringify(live);
+      channel.send({ type: 'broadcast', event: 'live', payload: { tabId: TAB, userId: me.userId, ...live } }).catch(() => {});
+    }, wait);
+  }
+  setInterval(() => { if (channel) sendLive(true); }, 8000);
+  setInterval(() => { const now = Date.now(); let gone = false; Object.keys(others).forEach((k) => { if (now - others[k].at > LIVE_TTL) { delete others[k]; gone = true; } }); if (gone) emitPresence(); }, 5000);
 
   /* subscribe first, then read; events that arrive during the read are replayed after the caller has the snapshot */
   async function join(id, user) {
     need();
-    roomId = id; me = { ...user }; presence = { userId: user.userId, name: user.name, avatar: user.avatar, sectionId: null, typing: false };
+    roomId = id; me = { ...user }; presence = { userId: user.userId, tabId: TAB, name: user.name, avatar: user.avatar, private: !!user.private }; live = {};
     buffering = true; buffer = [];
     if (channel) { await sb.removeChannel(channel); channel = null; }
-    channel = sb.channel(`room:${id}`, { config: { presence: { key: user.userId } } });
+    channel = sb.channel(`room:${id}`, { config: { presence: { key: `${user.userId}:${TAB}` }, broadcast: { self: false } } });
     const tables = { sections: 'sections', changes: 'changes', messages: 'messages', discussions: 'discussions', votes: 'votes', reactions: 'reactions', comments: 'comments', rooms: 'room' };
     Object.entries(tables).forEach(([table, kind]) => {
       channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: table === 'rooms' ? `id=eq.${id}` : `room_id=eq.${id}` }, (p) => {
-        const ev = { type: p.eventType, row: p.eventType === 'DELETE' ? p.old : p.new };
+        const ev = { type: p.eventType, row: p.eventType === 'DELETE' ? p.old : p.new }; lastEvent = Date.now();
         if (buffering) buffer.push([kind, ev]); else emit(kind, ev);
       });
     });
-    channel.on('presence', { event: 'sync' }, () => emit('presence', presenceList()));
+    channel.on('presence', { event: 'sync' }, () => emitPresence());
+    channel.on('presence', { event: 'join' }, () => sendLive(true));   // tell newcomers where I am
+    channel.on('broadcast', { event: 'live' }, ({ payload }) => {
+      if (!payload || payload.tabId === TAB) return;
+      const { tabId, userId, ...rest } = payload;
+      others[tabId] = { ...rest, at: Date.now() }; emitPresence();
+    });
     let joined = false, lost = false;
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, 6000);
@@ -138,11 +171,15 @@ window.Store = (() => {
 
   let lastTrack = '';
   function setPresence(patch) {
-    presence = { ...presence, ...patch };
-    const key = JSON.stringify(presence);
-    if (!channel || key === lastTrack) return;
-    lastTrack = key; channel.track(presence).catch(() => {});
+    const idPatch = {}, livePatch = {};
+    Object.entries(patch).forEach(([k, v]) => { (IDENTITY.includes(k) ? idPatch : livePatch)[k] = v; });
+    if (Object.keys(livePatch).length) { live = { ...live, ...livePatch }; sendLive(); }
+    if (Object.keys(idPatch).length) {
+      presence = { ...presence, ...idPatch };
+      const key = JSON.stringify(presence);
+      if (channel && key !== lastTrack) { lastTrack = key; channel.track(presence).catch(() => {}); }
+    }
   }
 
-  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId };
+  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
 })();

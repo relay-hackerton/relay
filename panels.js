@@ -128,6 +128,7 @@ window.RelayPanels = (R) => {
     state.resolving = discId; renderDisc();
     let r; try { r = await Store.resolve(discId, d.conclusion || null, { lang }); } catch (e) { r = { error: e.message }; }
     state.resolving = null; renderDisc();
+    if (!r.error) setTimeout(() => { if (Store.lastEventAt() < Date.now() - 2000) Store.snapshot().then(() => window.dispatchEvent(new Event('online'))); }, 1500);
     if (r && r.error) toast(r.error === 'tie' ? t('err_tie') : t('err_generic', { err: r.error }));
   }
 

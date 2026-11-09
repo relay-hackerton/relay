@@ -343,6 +343,10 @@
     $('#input').placeholder = state.ctx ? t('input_ph_ctx', { sec: secLabel(state.ctx) }) : t('input_ph');
   }
 
+  /* if realtime did not bring anything after one of my calls, read the room again (dropped socket, throttling) */
+  function catchUp(since) {
+    setTimeout(() => { if (Store.lastEventAt() < since && state.view === 'doc') Store.snapshot().then((d) => applySnapshot(d, false)).catch(() => {}); }, 1500);
+  }
   async function send(text) {
     if (state.viewing !== ME() || state.pending) return;
     const body = (state.ctx ? t('ask_prefix', { sec: secLabel(state.ctx) }) : '') + text;
@@ -352,6 +356,7 @@
     try { res = await Store.say(body.slice(0, 500), { lang, model: (currentModel() || {}).id, onQueued: (q) => { state.queued = q; renderAgent(); renderChat(); } }); }
     catch (e) { res = { error: e.message }; }
     state.pending = false; state.queued = false;
+    catchUp(Date.now() - 500);
     renderComposer(); renderAgent(); renderChat(); renderGuide();
     if (res && res.error && !res.said) localSay(`<p class="meta">${esc(t('err_generic', { err: res.error }))}</p>`);   // the agent already apologised in the session when said
     $('#input').focus();
@@ -360,6 +365,7 @@
     if (state.botBusy || botDone()) return;
     state.botBusy = true; renderHeaderActions(); renderGuide();
     let r; try { r = await Store.bot({ lang }); } catch (e) { r = { error: e.message }; }
+    catchUp(Date.now() - 500);
     state.botBusy = false; renderHeaderActions(); renderGuide();
     if (r && r.error) toast(t('err_generic', { err: r.error }));
   }
@@ -530,38 +536,83 @@
   }
 
   /* ---------- who is where: a name tag at the start of the section each person is looking at ---------- */
+  /* every other tab in the room: where its pointer (or caret, while editing) is — section, paragraph, word */
   function cursors() {
-    const out = {};
-    state.presence.forEach((p) => { if (p.userId !== ME() && (p.editing || p.sectionId)) out[p.userId] = p.editing || p.sectionId; });
+    const out = [];
+    const myTab = Store.tabId && Store.tabId();
+    state.presence.forEach((p) => {
+      if (p.tabId === myTab || (!p.tabId && p.userId === ME())) return;
+      const sid = p.editing || p.sectionId; if (!sid) return;
+      out.push({ key: p.tabId || p.userId, mid: p.userId, sectionId: sid, para: p.para || 0, word: p.word ?? 0, editing: !!p.editing });
+    });
     if (state.room && state.room.bots_on) {
       const a = state.room.agent || {}; const open = state.discRows.find((d) => d.status === 'open');
-      out.bot_jieun = a.state === 'working' && a.by_id === 'bot_jieun' && a.section_id ? a.section_id : 's3';
-      out.bot_minsu = open ? (open.section_id || 's8') : 's2';
+      out.push({ key: 'bot_jieun', mid: 'bot_jieun', sectionId: a.state === 'working' && a.by_id === 'bot_jieun' && a.section_id ? a.section_id : 's3', para: 1, word: 0 });
+      out.push({ key: 'bot_minsu', mid: 'bot_minsu', sectionId: open ? (open.section_id || 's8') : 's2', para: 0, word: 3 });
     }
     return out;
   }
-  function makeCaret(mid) {
-    const editing = !!state.presence.find((p) => p.userId === mid && p.editing);
-    const s = document.createElement('span'); s.className = `cursor ${editing ? 'typing' : ''}`; s.style.setProperty('--c', member(mid).color); s.contentEditable = 'false';
-    s.innerHTML = `<i></i><b>${esc(name(mid))}${editing ? icon('pencil') : ''}</b>`; return s;
+  function makeCaret(c) {
+    const s = document.createElement('span'); s.className = `cursor ${c.editing ? 'typing' : ''}`; s.style.setProperty('--c', member(c.mid).color); s.contentEditable = 'false';
+    s.innerHTML = `<i></i><b>${esc(name(c.mid))}${c.editing ? icon('pencil') : ''}</b>`; return s;
+  }
+  /* put a caret before the n-th word of a paragraph (the prototype's cursor) */
+  function insertCaret(p, wordIdx, caret) {
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); let remaining = wordIdx; let node;
+    while ((node = walker.nextNode())) {
+      if (node.parentNode && node.parentNode.closest && node.parentNode.closest('.cursor, .draft-caret')) continue;
+      const parts = node.nodeValue.split(/(\s+)/); let pos = 0;
+      for (const part of parts) {
+        if (/\S/.test(part)) { if (remaining === 0) { const after = node.splitText(pos); after.parentNode.insertBefore(caret, after); return; } remaining--; }
+        pos += part.length;
+      }
+    }
+    p.appendChild(caret);
   }
   let cursorKey = '';
   function renderCursors(force = false) {
     if (state.view !== 'doc' || state.tab !== 'doc') return;
-    const bySec = {};
-    Object.entries(cursors()).forEach(([mid, sid]) => { (bySec[sid] ||= []).push(mid); });
-    const editingKey = state.presence.filter((p) => p.editing).map((p) => p.userId).join();
-    const key = JSON.stringify([bySec, editingKey, state.myEdit]);
-    const expected = Object.entries(bySec).reduce((n, [sid, l]) => n + (state.myEdit === sid ? 0 : l.length), 0);
-    if (!force && key === cursorKey && $$('.cursor').length === expected) return;   // nothing moved: leave the DOM alone
+    const list = cursors().filter((c) => c.sectionId !== state.myEdit);
+    const key = JSON.stringify([list, state.myEdit]);
+    if (!force && key === cursorKey && $$('#docPane .cursor').length === list.length) return;   // nothing moved: leave the DOM alone
     cursorKey = key;
-    $$('.cursor').forEach((el) => { const p = el.parentNode; el.remove(); if (p) p.normalize(); });
-    Object.entries(bySec).forEach(([sid, list]) => {
-      const el = $(`.sec[data-id="${sid}"]`); if (!el || state.myEdit === sid) return;
-      const ps = $$('.sec-body > p:not(.fn)', el);
-      list.forEach((mid, i) => { const p = ps[Math.min(i, ps.length - 1)]; if (p) p.insertBefore(makeCaret(mid), p.firstChild); });
+    $$('#docPane .cursor').forEach((el) => { const p = el.parentNode; el.remove(); if (p) p.normalize(); });
+    list.forEach((c) => {
+      const el = $(`.sec[data-id="${c.sectionId}"]`); if (!el) return;
+      const ps = $$('.sec-body > p:not(.fn)', el); if (!ps.length) return;
+      insertCaret(ps[Math.min(Math.max(0, c.para), ps.length - 1)], Math.max(0, c.word), makeCaret(c));
     });
   }
+  /* my pointer over the document (or my caret while I edit) → section, paragraph, word */
+  function pointAt(node, offset) {
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    const p = el && el.closest('.sec-body > p'); const sec = p && p.closest('.sec[data-id]');
+    if (!p || !sec || p.classList.contains('fn')) return null;
+    const ps = $$('.sec-body > p:not(.fn)', sec); const para = ps.indexOf(p); if (para < 0) return null;
+    const r = document.createRange(); r.selectNodeContents(p);
+    try { r.setEnd(node, offset); } catch (e) { return { sectionId: sec.dataset.id, para, word: 0 }; }
+    const before = r.toString(); const words = before.match(/\S+/g) || [];
+    return { sectionId: sec.dataset.id, para, word: Math.max(0, /\s$/.test(before) || !before ? words.length : words.length - 1) };
+  }
+  let lastPoint = '';
+  function sharePoint(pt) {
+    if (!pt) return; const k = JSON.stringify(pt); if (k === lastPoint) return; lastPoint = k;
+    Store.setPresence(pt);
+  }
+  $('#docPane').addEventListener('mousemove', (e) => {
+    if (state.myEdit) return;
+    let node, offset;
+    if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(e.clientX, e.clientY); if (!r) return; node = r.startContainer; offset = r.startOffset; }
+    else if (document.caretPositionFromPoint) { const r = document.caretPositionFromPoint(e.clientX, e.clientY); if (!r) return; node = r.offsetNode; offset = r.offset; }
+    else return;
+    sharePoint(pointAt(node, offset));
+  });
+  document.addEventListener('selectionchange', () => {
+    if (!state.myEdit) return;
+    const sel = window.getSelection(); if (!sel || !sel.rangeCount) return;
+    const r = sel.getRangeAt(0); if (!r.startContainer || !$(`.sec[data-id="${state.myEdit}"]`)?.contains(r.startContainer)) return;
+    sharePoint(pointAt(r.startContainer, r.startOffset));
+  });
   let presTimer = null;
   function trackMySection() {
     if (state.view !== 'doc' || state.tab !== 'doc') return;
@@ -570,7 +621,7 @@
       const sc = $('#leftScroll'); const mid = sc.getBoundingClientRect().top + sc.clientHeight / 2;
       let best = null, dist = Infinity;
       $$('#docPane .sec').forEach((el) => { const r = el.getBoundingClientRect(); const d = mid < r.top ? r.top - mid : mid > r.bottom ? mid - r.bottom : 0; if (d < dist) { dist = d; best = el.dataset.id; } });
-      if (best) Store.setPresence({ sectionId: best });
+      if (best && (!lastPoint || JSON.parse(lastPoint).sectionId !== best)) sharePoint({ sectionId: best, para: 0, word: 0 });
     }, 350);
   }
   $('#leftScroll').addEventListener('scroll', () => {
@@ -802,7 +853,7 @@
     const edits = (l) => JSON.stringify(l.filter((p) => p.userId !== ME()).map((p) => `${p.userId}:${p.editing || ''}`).sort());   // my own editing state is already local
     const drafts = (l) => Object.fromEntries(l.filter((p) => p.editing && p.userId !== ME()).map((p) => [p.editing, JSON.stringify(p.draft || null)]));
     const e0 = edits(state.presence), d0 = drafts(state.presence);
-    const who = (l) => JSON.stringify(l.map((p) => `${p.userId}:${p.name}:${p.avatar}:${p.sectionId || ''}`).sort());
+    const who = (l) => JSON.stringify(l.map((p) => `${p.userId}:${p.name}:${p.avatar}:${p.private ? 1 : 0}`).sort());
     const w0 = who(state.presence);
     state.presence = list; list.forEach((p) => learn(p.userId, p.name, p.avatar));
     if (w0 !== who(list)) renderPresence();

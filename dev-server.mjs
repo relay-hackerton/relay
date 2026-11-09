@@ -68,6 +68,7 @@ async function mockRoute(req, res, url) {
     }
     return json(res, { data: null, error: null });
   }
+  if (url.pathname === '/mock/broadcast') { push(b.room, { broadcast: { event: b.event, payload: b.payload } }); return json(res, { ok: true }); }
   if (url.pathname === '/mock/presence') {
     if (!presence.has(b.room)) presence.set(b.room, new Map());
     presence.get(b.room).set(b.key, [b.state]);
