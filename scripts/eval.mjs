@@ -32,6 +32,7 @@ const timed = async (args) => { const t = Date.now(); calls++; try { return awai
 console.log(`provider ${PROVIDER()} · model ${MODEL()}\n`);
 const rows = [];
 for (const c of CASES) {
+  if (rows.length) await new Promise((r) => setTimeout(r, Number(process.env.EVAL_GAP_MS || 7000)));   // stay under low RPM limits
   const { db, T } = mockDb(); const deps = { db, callClaude: timed, retryMs: 1 };
   const roomId = await createRoom(db);
   if (c.afterBot) await runBot({ roomId, lang: c.lang }, deps);

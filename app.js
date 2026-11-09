@@ -320,7 +320,7 @@
     catch (e) { res = { error: e.message }; }
     state.pending = false; state.queued = false;
     renderComposer(); renderAgent(); renderChat(); renderGuide();
-    if (res && res.error) localSay(`<p class="meta">${esc(t('err_generic', { err: res.error }))}</p>`);
+    if (res && res.error && !res.said) localSay(`<p class="meta">${esc(t('err_generic', { err: res.error }))}</p>`);   // the agent already apologised in the session when said
     $('#input').focus();
   }
   async function bringTeammate() {

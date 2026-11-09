@@ -73,4 +73,4 @@ export const BOTS = {
   jieun: { id: 'bot_jieun', name: 'Jieun', avatar: 'p:jieun' },
   minsu: { id: 'bot_minsu', name: 'Minsu', avatar: 'p:minsu' },
 };
-export const BOT_REQUEST = 'Remove typing from the invite step. We lose 41% there, so auto-invite same-domain teammates from contacts instead.';
+export const BOT_REQUEST = 'Remove typing from the invite step in section 3: with contacts permission (Google · Slack), auto-invite teammates on the same domain, and let people skip the permission screen. We lose 41% at that step.';

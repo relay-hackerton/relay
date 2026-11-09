@@ -1,7 +1,9 @@
 /* Shared server helpers: Supabase REST (service role), responses, ids, the agent lock. No npm dependencies. */
 import { randomUUID, randomBytes } from 'node:crypto';
 
-const SB_URL = () => (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+/* accepts the project URL with or without a trailing /rest/v1/ */
+export const supabaseBase = () => (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
+const SB_URL = supabaseBase;
 const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 async function rest(path, { method = 'GET', body, prefer } = {}) {

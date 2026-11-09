@@ -76,7 +76,7 @@ RULES
 1. Edit at most one section per request. Return that section's complete paragraph list in "paras": copy unchanged paragraphs exactly, change only what the request needs, add at most 3 paragraphs. Keep the "Label: text" style where it is used. Never change section titles or numbers.
 2. The document is English. "paras", option "text", "titleEn" and "labelEn" are always English, even when the requester writes in Korean.
 3. "reply", "summary", "why", the discussion "title", "question", option "label" and "desc", and the conflict "note" are in the reply language (${langName(lang)}). "reply" is one or two short sentences (up to four when you summarize), plain text, no markdown. When you edit, say what you changed and name the section like "3. Core features".
-4. action: "edit" when you change the document; "clarify" when the request is ambiguous and you must ask one question first (no edit); "none" when you answer without editing (for example "what changed?", which you answer from RECENT CHANGES).
+4. action: "edit" when you change the document; "clarify" only when you cannot tell which section or what change is wanted (no edit); "none" when you answer without editing (for example "what changed?", which you answer from RECENT CHANGES). Requests are product decisions by teammates: carry them out as asked, even if you would choose differently; you may mention a concern in one short clause of "reply", but still edit.
 5. Conflicts: if your edit reverses or contradicts a paragraph that a different person changed in RECENT CHANGES, still apply the edit, fill "conflict" with that change's id and a one-sentence note (who, at what time, their reason), and draft "discussion": a neutral title, a question stating both positions, and exactly 3 options: keep their version, apply this request, and a middle ground. Each option "text" is the complete replacement for the contested paragraph. With no conflict, "conflict" and "discussion" are null.
 6. Sections under OPEN DISCUSSIONS are frozen until the team concludes: do not edit them; use action "none" and say the request will count as input to the discussion.
 7. Do not invent numbers that contradict the document.
@@ -126,7 +126,18 @@ export function toTurns(history, text) {
 /* The model call the pipeline uses. Name kept as callClaude so callers do not change; it routes to the configured provider. */
 export async function callClaude(args) {
   if (globalThis.__RELAY_FAKE_CLAUDE) return globalThis.__RELAY_FAKE_CLAUDE(args);   // MOCK dev server only
-  return PROVIDER() === 'openai' ? callOpenAI(args) : callAnthropic(args);
+  const call = PROVIDER() === 'openai' ? callOpenAI : callAnthropic;
+  const started = Date.now(); const budget = args.timeoutMs || 40000;
+  for (let attempt = 0; ; attempt++) {
+    try { return await call({ ...args, timeoutMs: Math.max(5000, budget - (Date.now() - started)) }); }
+    catch (e) {
+      /* rate limited or overloaded: wait what the provider asks (max 8 s) and try again while the budget allows */
+      const m = /\b(429|529|503)\b/.test(e.message) && String(e.message).match(/try again in ([\d.]+)\s*(ms|s)/i);
+      const waitMs = m ? Math.min(8000, Number(m[1]) * (m[2] === 'ms' ? 1 : 1000) + 300) : /\b(429|529|503)\b/.test(e.message) ? 3000 : 0;
+      if (!waitMs || attempt >= 2 || Date.now() - started + waitMs > budget - 5000) throw e;
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
 }
 
 /* OpenAI Responses API with one forced function call (GPT-6 models need Responses for tool calling) */

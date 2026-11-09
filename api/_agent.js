@@ -165,8 +165,15 @@ export async function runAgent(input, deps = {}) {
     return { ok: false, error: 'gave up' };
   } catch (e) {
     console.error(e);
-    try { await sayAgent(d, who, L(lang, "Sorry, I couldn't finish that one. Please try again.", '죄송해요, 이번 요청은 끝내지 못했어요. 다시 한 번 보내 주세요.'), { action: 'error', error: String(e.message || e).slice(0, 200) }); } catch (e2) { /* ignore */ }
-    return { status: 502, body: { error: String(e.message || e) } };
+    const busy = /\b429\b|rate limit|overloaded|\b529\b/i.test(String(e.message));
+    let said = false;
+    try {
+      await sayAgent(d, who, busy
+        ? L(lang, 'The model is at its rate limit right now. Please try again in a moment.', '지금 모델 사용 한도에 걸렸어요. 잠시 뒤에 다시 보내 주세요.')
+        : L(lang, "Sorry, I couldn't finish that one. Please try again.", '죄송해요, 이번 요청은 끝내지 못했어요. 다시 한 번 보내 주세요.'), { action: 'error', error: String(e.message || e).slice(0, 200) });
+      said = true;
+    } catch (e2) { /* ignore */ }
+    return { status: 502, body: { error: busy ? 'rate_limited' : String(e.message || e).slice(0, 200), said } };
   } finally {
     await release(roomId, lock.token, d);
   }
