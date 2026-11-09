@@ -60,7 +60,8 @@ body {
   overflow: hidden;
 }
 .orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-.orb { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .75; animation: drift 26s ease-in-out infinite alternate; }
+/* the orbs stay still: moving them under the frosted panels made the browser re-blur the whole screen every frame */
+.orb { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .75; }
 .orb.b { width: 520px; height: 520px; left: -120px; top: -140px; background: var(--orb-blue); }
 .orb.v { width: 460px; height: 460px; right: -80px; top: 80px; background: var(--orb-violet); animation-delay: -8s; }
 .orb.c { width: 380px; height: 380px; left: 38%; bottom: -160px; background: var(--orb-cyan); animation-delay: -15s; }
@@ -94,7 +95,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .presence .av.live::after {
   content: ""; position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border-radius: 50%;
   background: var(--good); box-shadow: 0 0 0 2px #fff;
-  animation: pulse 1.6s ease-out infinite;
 }
 .presence-label { margin-left: 10px; color: var(--ink-2); font-size: 12.5px; }
 .presence-label b { color: var(--ink); font-weight: 600; }
@@ -307,7 +307,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .disc-result p.del { background: var(--diff-del); color: var(--diff-del-ink); text-decoration: line-through; }
 .disc-result p.add { background: var(--diff-add); color: var(--diff-add-ink); }
 .disc-result .pending { color: var(--ink-3); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
-.ready { animation: readypulse 1.4s ease-in-out infinite; }
+.btn.ready { animation: readypulse 1.4s ease-in-out infinite; }
 @keyframes readypulse { 50% { box-shadow: 0 0 0 5px rgba(47,107,255,.18); } }
 
 /* Activity log */
@@ -771,7 +771,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 }
 
 /* ---------- performance: no animated blur behind the working screen, scrollers on their own layer ---------- */
-body:not(.on-home) .orb { animation: none; }
+
 @media (prefers-reduced-motion: reduce) { .orb { animation: none; } }
 .pane-scroll, .msgs { will-change: scroll-position; overscroll-behavior: contain; }
 .paper { contain: layout style; }
@@ -827,10 +827,10 @@ select {
 .notice-close { padding: 8px 12px; font-size: 20px; color: var(--ink-2); }
 
 /* ---------- first paint: nothing until the script has picked the view (library or room), so neither flashes ---------- */
-html:not(.ready) .app { visibility: hidden; animation: reveal-app 0s 3s forwards; }   /* a broken script still shows the page after 3 s */
+html:not(.view-ready) .app { visibility: hidden; animation: reveal-app 0s 3s forwards; }   /* a broken script still shows the page after 3 s */
 @keyframes reveal-app { to { visibility: visible; } }
 .paper.loading { min-height: 60vh; display: grid; align-content: start; gap: 14px; }
-.paper.loading .sk { height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(27,33,48,.06), rgba(27,33,48,.11), rgba(27,33,48,.06)); background-size: 200% 100%; animation: sk-shine 1.4s ease-in-out infinite; }
+.paper.loading .sk { height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(27,33,48,.06), rgba(27,33,48,.11), rgba(27,33,48,.06)); background-size: 200% 100%; }   /* still: a moving shine here costs a full re-blur per frame */
 .paper.loading .sk.w30 { width: 30%; } .paper.loading .sk.w50 { width: 50%; height: 22px; } .paper.loading .sk.w70 { width: 70%; } .paper.loading .sk.w80 { width: 80%; }
 @keyframes sk-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .paper.loading .sk { animation: none; } }
@@ -857,3 +857,13 @@ html:not(.ready) .app { visibility: hidden; animation: reveal-app 0s 3s forwards
 .sec-body p:is(.md-li, .md-ol):has(+ p:not(.md-li, .md-ol)) { margin-bottom: 10px; }
 .sec-body p.md-ol { padding-left: calc(24px + var(--md-depth, 0) * 18px); }
 .sec-body p.md-code, .sec-body p.md-table { max-width: none; }
+
+/* opening a room: what is already there shows at once (entry animations are for new arrivals) */
+body.entering :is(.msg, .ent, .cmt, .sysnote, .compose, .pop) { animation: none !important; }
+
+
+/* Indicators that can stay on for minutes pulse a few times and then hold still. An endless animation under the
+   frosted header/panels makes the browser re-blur the screen on every frame, which is what felt sluggish. */
+.agent-chip[data-status="waiting"] .dot, .rail-agent[data-status="waiting"] .dot,
+.disc-chip .dot, .disc-f .agentline .dot, .live-tag .dot, .btn.ready { animation-iteration-count: 3 !important; }
+.agent-chip[data-status="working"] .dot, .rail-agent[data-status="working"] .dot { animation-iteration-count: 20 !important; }

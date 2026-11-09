@@ -701,7 +701,7 @@
         document = { title, ...await readDocument(file) };
       }
       const rid = await Store.createRoom(document);
-      location.assign(`/r/${rid}${location.search}`);
+      closeModal(); state.landing.busy = false; go(`/r/${rid}`);
     } catch (e) {
       const importErrors = ['import_invalid', 'import_large', 'import_file_large', 'import_unreadable', 'import_no_text'];
       error.textContent = importErrors.includes(e.message) ? t(e.message)
@@ -776,8 +776,20 @@
     if (!rid) return showView('home');
     if (!state.me) return openNameModal();
     if (rid === state.roomId) return showView('doc');
-    if (state.roomId) return location.reload();   // another room: a clean page keeps the two rooms' state apart
+    if (state.roomId) resetRoom();   // another room: start its state clean, without reloading the page
+    showShell();                     // the document frame right away, while the room loads
     return joinRoom(rid);
+  }
+  /* everything that belongs to the room we are leaving */
+  function resetRoom() {
+    Object.assign(state, {
+      roomId: null, room: null, viewing: null, sections: [], changeList: [], messages: [], discRows: [], votes: [], presence: [],
+      editing: {}, recent: {}, showDiff: {}, unread: new Set(), lastSeen: {}, openPop: null, popMeta: null, openEntry: null, openDiffs: new Set(),
+      ctx: null, pending: false, queued: false, resolving: null, conclusion: {}, localMsgs: [], docDirty: false, myEdit: null, saving: false,
+      reactions: [], commentRows: [], draftDisc: null, page: 1, exportOpen: false,
+    });
+    Object.keys(reveal).forEach((k) => delete reveal[k]);
+    $('#msgs').innerHTML = ''; $('#discPane').innerHTML = ''; $('#logPane').innerHTML = '';
   }
   /* the library card: the shared onboarding room, the same link for everyone */
   async function openShared() {
@@ -785,7 +797,7 @@
     if (state.creating) return; state.creating = true;
     try {
       const rid = await Store.sharedRoom();
-      if (state.roomId && state.roomId !== rid) { location.assign(`/r/${rid}${location.search}`); return; }
+      if (state.roomId && state.roomId !== rid) { state.creating = false; return go(`/r/${rid}`); }
       await go(`/r/${rid}`);
     } catch (e) { toast(t('err_generic', { err: e.message })); }
     state.creating = false;
@@ -808,7 +820,9 @@
     state.me = me; saveMe(me); learn(me.userId, me.name, me.avatar);
     state.roomId = rid; state.viewing = ME();
     applySnapshot(data, true);
+    document.body.classList.add('entering');   // what is already there appears at once; only new things animate in
     showView('doc');
+    requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('entering')));
   }
   /* load a full snapshot: on join, and again after a dropped connection (sections that changed meanwhile are marked as new) */
   function applySnapshot(data, initial) {
@@ -938,7 +952,10 @@
       loadLibrary(); return;
     }
     Store.setPresence({ private: state.myPrivate });
-    renderPresence(); renderChatHead(); renderComposer(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
+    /* what is on screen first (document, chat); the discussion and activity tabs are drawn right after */
+    renderPresence(); renderChatHead(); renderComposer(); renderChat(); renderTabs(); renderChips(); renderCtx(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
+    const rid = state.roomId;
+    setTimeout(() => { if (state.view === 'doc' && state.roomId === rid) { P.renderDisc(); renderLog(); } }, 30);
     setTimeout(trackMySection, 600);
   }
   /* a room URL while we still check the nickname and load the room: the document frame, not the library */
@@ -976,7 +993,7 @@
     if (t0.hasAttribute('data-pick-file')) return $('#iFile').click();
     if (d.openUnit) {
       const imported = state.importedRooms.find((u) => u.id === d.openUnit);
-      if (imported) return state.roomId && imported.roomId !== state.roomId ? location.assign(`/r/${imported.roomId}${location.search}`) : go(`/r/${imported.roomId}`);
+      if (imported) return go(`/r/${imported.roomId}`);
       if (d.openUnit === 'onboarding') return openShared();
     }
     if (t0.hasAttribute('data-home')) return go('/');
@@ -1072,7 +1089,7 @@
   (async () => {
     try { ['relay.private', 'relay.importedRooms'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
     if (roomFromPath()) showShell(); else showView('home');
-    document.documentElement.classList.add('ready');
+    document.documentElement.classList.add('view-ready');
     if (!Store.configured()) return toast(t('land_err_conf'));
     const saved = loadMe();
     if (!saved) { forgetMe(); booted = true; return openNameModal(); }

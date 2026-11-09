@@ -54,10 +54,13 @@ window.Store = (() => {
   /* subscribe first, then read; events that arrive during the read are replayed after the caller has the snapshot */
   async function join(id, user, { checkNickname = false } = {}) {
     need();
+    const prevRoom = roomId;
     roomId = id; me = { ...user }; presence = { userId: user.userId, tabId: TAB, name: user.name, avatar: user.avatar, private: !!user.private }; live = {};
     buffering = true; buffer = [];
     clearTimeout(sendTimer); lastLive = '';
-    if (channel) { await sb.removeChannel(channel); channel = null; }
+    if (channel) { const old = sb.removeChannel(channel); channel = null; if (prevRoom === id) await old; else old.catch(() => {}); }   // leaving another room need not hold us up
+    /* read the room while the socket connects; if the read finished first, a quiet catch-up covers the gap */
+    const early = snapshot().then((s) => ({ s, at: Date.now() }), (e) => ({ e }));
     channel = sb.channel(`room:${id}`, { config: { presence: { key: `${user.userId}:${TAB}` }, broadcast: { self: false } } });
     const tables = { sections: 'sections', changes: 'changes', messages: 'messages', discussions: 'discussions', votes: 'votes', reactions: 'reactions', comments: 'comments', rooms: 'room' };
     Object.entries(tables).forEach(([table, kind]) => {
@@ -84,7 +87,7 @@ window.Store = (() => {
       const timer = setTimeout(resolve, 6000);
       channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          clearTimeout(timer); try { await channel.track(presence); } catch (e) { console.error(e); }
+          clearTimeout(timer); channel.track(presence).catch((e) => console.error(e));   // no need to wait for the echo
           if (joined && lost) { lost = false; emit('status', 'live'); emit('resync', 'reconnected'); }   // events may have been missed while away
           joined = true; resolve();
         }
@@ -101,15 +104,27 @@ window.Store = (() => {
         if (!list) throw new Error('nickname_unavailable');
         if (list.some((p) => p.userId !== user.userId && normalize(p.name) === normalize(user.name))) throw new Error('nickname_taken');
       }
-      const snap = await snapshot();
-      setTimeout(() => { buffering = false; const b = buffer; buffer = []; b.forEach(([k, ev]) => emit(k, ev)); }, 0);
-      return snap;
+      const subscribedAt = Date.now();
+      const got = await early;
+      if (got.e) throw got.e;
+      const snap = got.s;
+      setTimeout(() => {
+        buffering = false; const b = buffer; buffer = []; b.forEach(([k, ev]) => emit(k, ev));
+        if (got.at < subscribedAt && roomId === id) catchUp(id, snap);   // read before the socket was live
+      }, 0);
+      return { ...snap, presence: presenceList() };
     } catch (error) {
       await sb.removeChannel(channel);
       clearTimeout(sendTimer);
       channel = null; roomId = null;
       throw error;
     }
+  }
+
+  /* read again (network only); redraw only if something changed in the moment before the socket was live */
+  async function catchUp(id, snap) {
+    const sig = (s) => JSON.stringify([s.sections.map((x) => [x.id, x.rev]), s.changes.length, s.messages.length, s.discussions.map((d) => d.status), s.votes.length, s.reactions.length, s.comments.length, s.room.agent && s.room.agent.state]);
+    try { const now = await snapshot(); if (roomId === id && sig(now) !== sig(snap)) emit('resync', 'joined'); } catch (e) { /* the next event or reconnect catches up */ }
   }
 
   /* the whole room as it is now; used on join and to catch up after a dropped connection */
