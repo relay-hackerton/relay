@@ -766,6 +766,12 @@
     if (e.target.id === 'logMember') { state.logMember = e.target.value; renderLog(); }
     if (e.target.dataset.conclusion) { state.conclusion[e.target.dataset.conclusion] = e.target.value; P.renderDisc(); }
   });
+  /* landing: color avatars show the first letter of the name as it is typed */
+  document.addEventListener('input', (e) => {
+    if (e.target.id !== 'lName') return;
+    const ch = initial(e.target.value || '?');
+    $$('.avatar-pick .av').forEach((el) => { if (!el.querySelector('img')) el.textContent = ch; });
+  });
   let typingTimer;
   $('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); } });
   $('#input').addEventListener('input', (e) => {

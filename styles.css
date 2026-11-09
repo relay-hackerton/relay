@@ -719,10 +719,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .land-field input:focus { border-color: rgba(47,107,255,.6); box-shadow: 0 0 0 4px rgba(47,107,255,.12); }
 .land-card .lbl-row { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .avatar-pick { display: flex; flex-wrap: wrap; gap: 8px; }
-.avatar-pick .pick { padding: 3px; border-radius: 50%; border: 2px solid transparent; transition: border-color var(--fast), transform var(--fast); }
+.avatar-pick .pick { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; line-height: 0; border-radius: 50%; border: 2px solid transparent; transition: border-color var(--fast), transform var(--fast); }
+.avatar-pick .pick:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .avatar-pick .pick:hover { transform: translateY(-1px); }
 .avatar-pick .pick.on { border-color: var(--blue); }
-.avatar-pick .av { width: 36px; height: 36px; font-size: 14px; }
+.avatar-pick .av { display: grid; width: 36px; height: 36px; font-size: 14px; line-height: 1; }
 .btn.big { height: 42px; justify-content: center; font-size: 14px; margin-top: 4px; }
 .land-hint { margin: 0; color: var(--ink-3); font-size: 12px; text-align: center; }
 .land-card .btn.ghost.sm { justify-self: center; }
