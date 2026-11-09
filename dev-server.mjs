@@ -24,9 +24,26 @@ if (MOCK) {
   const m = mockDb(); const clients = new Map(); const presence = new Map();
   const push = (room, ev) => (clients.get(room) || new Set()).forEach((res) => res.write(`data: ${JSON.stringify(ev)}\n\n`));
   const roomOf = (table, row) => (table === 'rooms' ? row.id : row.room_id);
-  const wrap = (fn, kind) => async (table, ...a) => { const rows = await fn(table, ...a); (rows || []).forEach((row) => push(roomOf(table, row), { table, eventType: kind, row })); return rows; };
+  const notify = (table, row, eventType) => {
+    const ev = { table, eventType, row };
+    push(roomOf(table, row), ev);
+    if (table === 'rooms' && row.issue && eventType === 'INSERT') push('issues', ev);
+  };
+  const wrap = (fn, kind) => async (table, ...a) => { const rows = await fn(table, ...a); (rows || []).forEach((row) => notify(table, row, kind)); return rows; };
   const raw = { ...m.db };
-  const rpc = async (fn, a) => { const out = await raw.rpc(fn, a); const room = m.T.rooms.find((r) => r.id === a.p_room); if (room) push(room.id, { table: 'rooms', eventType: 'UPDATE', row: room }); return out; };
+  const rpc = async (fn, a) => {
+    const out = await raw.rpc(fn, a);
+    if (fn === 'create_issue') {
+      notify('rooms', m.T.rooms.find((r) => r.id === a.p_id), 'INSERT');
+    } else if (fn === 'write_section_change' && out === 'ok') {
+      notify('changes', m.T.changes.find((r) => r.id === a.p_change.id), 'INSERT');
+      notify('sections', m.T.sections.find((r) => r.room_id === a.p_room && r.id === a.p_section), 'UPDATE');
+    } else if (fn === 'acquire_agent' || fn === 'release_agent') {
+      const room = m.T.rooms.find((r) => r.id === a.p_room);
+      if (room) notify('rooms', room, 'UPDATE');
+    }
+    return out;
+  };
   Object.assign(lib.db, { ...raw, insert: wrap(raw.insert, 'INSERT'), update: wrap(raw.update, 'UPDATE'), rpc });
   // Claude: route the real pipeline's call to the scripted fake
   globalThis.__RELAY_FAKE_CLAUDE = fakeClaude;
@@ -49,9 +66,15 @@ async function mockRoute(req, res, url) {
   }
   const b = await body(req);
   if (url.pathname === '/mock/query') {
-    let rows = m.T[b.table].filter((r) => b.filters.every(([k, v]) => String(r[k]) === String(v)));
-    if (b.order) { const [c, d] = b.order; rows = [...rows].sort((x, y) => (x[c] > y[c] ? 1 : x[c] < y[c] ? -1 : 0) * (d === 'desc' ? -1 : 1)); }
+    let rows = m.T[b.table].filter((r) => b.filters.every(([k, v, op]) => op === 'not' ? r[k] != v : String(r[k]) === String(v)));
+    if (b.order?.length) rows = [...rows].sort((x, y) => {
+      for (const [c, dir] of b.order) {
+        if (x[c] !== y[c]) return (x[c] > y[c] ? 1 : -1) * (dir === 'desc' ? -1 : 1);
+      }
+      return 0;
+    });
     if (b.limit) rows = rows.slice(0, b.limit);
+    if (b.range) rows = rows.slice(b.range[0], b.range[1] + 1);
     return json(res, { data: b.single ? rows[0] || null : rows, error: null });
   }
   if (url.pathname === '/mock/delete') {
@@ -95,9 +118,9 @@ http.createServer(async (req, res) => {
       return await mod.default(req, res);
     }
     let p = decodeURIComponent(url.pathname);
-    if (p === '/' || /^\/r\/[a-z0-9]+\/?$/i.test(p)) p = '/index.html';
+    if (p === '/' || /^\/r\/[a-z0-9]{4,12}(?:\/(?:discussions|activity))?\/?$/i.test(p)) p = '/index.html';
     const file = path.join(ROOT, path.normalize(p));
-    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('not found'); }
+    if (!file.startsWith(ROOT + path.sep) || p.split('/').some((part) => part.startsWith('.')) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('not found'); }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   } catch (e) { console.error(e); json(res, { error: String(e.message) }, 500); }

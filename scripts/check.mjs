@@ -5,13 +5,14 @@ import { mockDb } from './mockdb.mjs';
 
 process.env.SUPABASE_URL = 'http://mock'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'x';
 const { db, T } = mockDb();
-const { createRoom } = await import('../api/room.js');
+const { createRoom, runCreateRoom } = await import('../api/room.js');
 const { runAgent, validate, findContested } = await import('../api/_agent.js');
 const { runBot } = await import('../api/bot.js');
 const { runResolve } = await import('../api/_resolve.js');
 const { runEdit } = await import('../api/_edit.js');
 const { runDiscuss } = await import('../api/_discuss.js');
 const { runProfile } = await import('../api/_profile.js');
+const { setSession, sessionUser } = await import('../api/_session.js');
 
 const AUTO = 'Team invite: with contacts permission (Google · Slack), auto-invite members on the same domain. The permission screen can be skipped.';
 const MANUAL = 'Team invite: invite teammates directly by email or invite link.';
@@ -51,6 +52,10 @@ scripted.push({ note: 'Jieun changed this to auto-invite a few minutes ago becau
 r = await runAgent({ roomId, userId: 'u_me', userName: 'Judge', text: 'Switch the team invite in section 3 to manual invites.', lang: 'en' }, deps);
 assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.conflict, true); assert.equal(s3().paras[1], MANUAL);
 const disc = T.discussions[0]; assert.equal(disc.para_index, 1); assert.equal(disc.n, 1);
+assert.equal(disc.opened_by_id, 'u_me');
+const callsBeforeDeniedConclusion = T.rooms[0].calls;
+assert.equal((await runResolve({ roomId, discussionId: disc.id, userId: 'u_other', optionId: 'A' }, deps)).status, 403);
+assert.equal(T.rooms[0].calls, callsBeforeDeniedConclusion);
 assert.deepEqual(T.votes.map((v) => [v.user_id, v.option_id]).sort(), [['bot_jieun', 'A'], ['bot_minsu', 'B']]);
 const reply = T.messages.at(-1); assert.equal(reply.meta.conflict.discussion_id, disc.id); assert.equal(reply.meta.conflict.change_id, jieunChange.id);
 
@@ -102,6 +107,37 @@ const again = await runProfile({ name: 'Yoorae', userId: p1.userId }, deps); ass
 const renamed = await runProfile({ name: 'Yoorae K', userId: p1.userId }, deps); assert.equal(renamed.name, 'Yoorae K');
 assert.equal((await runProfile({ userId: p1.userId }, deps)).name, 'Yoorae K');
 assert.equal((await runProfile({ name: 'x' }, deps)).body.error, 'length');
+
+// A signed session cannot be transferred to a different profile by changing the user ID.
+const headers = {};
+setSession({ headers: { 'x-forwarded-proto': 'https' } }, { setHeader: (k, v) => { headers[k] = v; } }, p1.userId);
+assert.match(headers['Set-Cookie'], /HttpOnly; SameSite=Strict; Secure/);
+const cookie = headers['Set-Cookie'].split(';')[0];
+assert.equal(sessionUser({ headers: { cookie } }), p1.userId);
+assert.equal(sessionUser({ headers: { cookie: cookie.replace(p1.userId, 'u_forged001') } }), null);
+
+const owner = { userId: p1.userId, userName: renamed.name };
+const { roomId: shared } = await runCreateRoom({ ...owner, document: { title: 'Shared', goal: 'Team goal', start: 'template' } }, db);
+const { roomId: imported } = await runCreateRoom({ ...owner, document: { title: 'Imported', start: 'import', text: '# Heading\nOriginal text.\fSecond page.', markdown: true } }, db);
+assert.equal(T.rooms.find((row) => row.id === shared).issue.goal, 'Team goal');
+assert.equal(T.rooms.find((row) => row.id === roomId).issue, undefined);
+const imports = T.sections.filter((s) => s.room_id === imported);
+assert.deepEqual(imports.map((s) => [s.title, s.page]), [['Heading', 1], ['Document', 2], ['Decision log', 2]]);
+assert.equal(validate({ action: 'edit', reply: '수정했어요', sectionId: imports[0].id, paras: ['원본 문장'] }, imports), null);
+const target = T.sections.find((s) => s.room_id === shared && s.id === 'issue-1');
+const write = { ...owner, roomId: shared, sectionId: target.id };
+const edited = await runEdit({ ...write, rev: 0, paras: ['First draft'] }, deps);
+assert.equal(edited.ok, true);
+const restore = { changeId: edited.changeId, version: 'before' };
+assert.equal((await runEdit({ ...write, roomId: imported, sectionId: imports[0].id, rev: 0, restore }, deps)).body.error, 'version_not_found');
+assert.equal((await runEdit({ ...write, rev: 0, restore }, deps)).body.error, 'stale');
+const restored = await Promise.all([runEdit({ ...write, rev: 1, restore }, deps), runEdit({ ...write, rev: 1, restore }, deps)]);
+assert.equal(restored.filter((result) => result.ok).length, 1);
+assert.equal(restored.find((result) => !result.ok).body.error, 'stale');
+assert.deepEqual(target.paras, []);
+assert.deepEqual(T.changes.at(-1).prev, ['First draft']);
+assert.equal((await runDiscuss({ ...write, title: 'Choose a draft', options: [{ label: 'A' }, { label: 'B' }] }, deps)).ok, true);
+assert.equal((await runEdit({ ...write, rev: 2, restore: { ...restore, version: 'after' } }, deps)).body.error, 'frozen');
 
 // 9. helpers
 assert.ok(validate({ action: 'edit', reply: 'x', sectionId: 's9', paras: ['a'] }, T.sections).startsWith('sectionId'));

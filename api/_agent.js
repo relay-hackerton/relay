@@ -1,6 +1,6 @@
 /* The agent pipeline shared by /api/agent and /api/bot: lock → read → Claude → validate → write → unlock. */
-import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, hasHangul, L, LIMIT, MAX_TEXT } from './_lib.js';
-import { RESPOND_TOOL, DRAFT_TOOL, systemPrompt, draftPrompt, toTurns, callClaude as realClaude } from './_prompt.js';
+import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, hasHangul, L, LIMIT, MAX_TEXT, writeSectionChange } from './_lib.js';
+import { RESPOND_TOOL, DRAFT_TOOL, systemPrompt, draftPrompt, usesSampleLanguage, toTurns, callClaude as realClaude } from './_prompt.js';
 import { BOTS } from './_seed.js';
 import { pickModel } from './_models.js';
 
@@ -16,11 +16,12 @@ export function validate(out, sections) {
   if (!out || typeof out !== 'object') return 'no output';
   if (!['edit', 'clarify', 'none', 'discuss'].includes(out.action)) return 'action must be "edit", "clarify", "none" or "discuss"';
   if (typeof out.reply !== 'string' || !out.reply.trim()) return '"reply" is empty';
+  const englishBody = usesSampleLanguage(sections);
   if (out.action === 'discuss') {
     const o = out.discussion && out.discussion.options;
     if (!o || !Array.isArray(o) || o.length < 2 || !out.discussion.title) return 'discuss needs a discussion with a title and at least 2 options';
     if (out.sectionId && !sections.some((s) => s.id === out.sectionId)) return `sectionId "${out.sectionId}" does not exist`;
-    if (o.some((x) => x && x.text && hasHangul(x.text))) return 'discussion option "text" must be English';
+    if (englishBody && o.some((x) => x && x.text && hasHangul(x.text))) return 'discussion option "text" must be English';
     return null;
   }
   if (out.action !== 'edit') return null;
@@ -28,11 +29,11 @@ export function validate(out, sections) {
   if (!sec) return `sectionId "${out.sectionId}" does not exist; use one of ${sections.map((s) => s.id).join(', ')}`;
   if (!Array.isArray(out.paras) || !out.paras.length || out.paras.some((p) => typeof p !== 'string' || !p.trim())) return '"paras" must be a non-empty list of non-empty strings';
   if (out.paras.length > sec.paras.length + 3) return `"paras" grew from ${sec.paras.length} to ${out.paras.length}; add at most 3 paragraphs`;
-  if (out.paras.some(hasHangul)) return '"paras" must be English only; translate the paragraphs to English';
+  if (englishBody && out.paras.some(hasHangul)) return '"paras" must be English only; translate the paragraphs to English';
   if (out.discussion) {
     const o = out.discussion.options;
     if (!Array.isArray(o) || o.length !== 3) return 'discussion needs exactly 3 options';
-    if (o.some((x) => !x || !x.text || hasHangul(x.text) || hasHangul(x.labelEn))) return 'discussion option "text" and "labelEn" must be English';
+    if (o.some((x) => !x || !x.text || (englishBody && hasHangul(x.text)) || hasHangul(x.labelEn))) return 'discussion options need replacement text and an English "labelEn"; sample text must be English';
     if (hasHangul(out.discussion.titleEn)) return '"titleEn" must be English';
   }
   return null;
@@ -114,7 +115,7 @@ export async function runAgent(input, deps = {}) {
   const started = Date.now();
   try {
     if (lock.calls > LIMIT()) {
-      await sayAgent(d, who, L(lang, `This demo room has used its ${LIMIT()} agent requests. Start a new room from the home page to keep going.`, `이 데모 방은 에이전트 요청 ${LIMIT()}회를 다 썼어요. 처음 화면에서 새 방을 만들면 이어서 써 볼 수 있어요.`), { action: 'limit' });
+      await sayAgent(d, who, L(lang, `This room has used its ${LIMIT()} agent requests. Start a new room from the home page to keep going.`, `이 방은 에이전트 요청 ${LIMIT()}회를 다 썼어요. 처음 화면에서 새 방을 만들면 이어서 써 볼 수 있어요.`), { action: 'limit' });
       return { ok: true, limited: true };
     }
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -141,11 +142,10 @@ export async function runAgent(input, deps = {}) {
 
       await setAgentSection(roomId, lock, userId, userName, sec.id, d);
       const changeId = newId('c'); const messageId = uuid();
-      const updated = await d.update('sections', `room_id=${d.eq(roomId)}&id=${d.eq(sec.id)}&rev=eq.${sec.rev}`, { paras: out.paras, rev: sec.rev + 1, last_change_id: changeId });
-      if (!updated.length) { if (attempt === 0) continue; throw new Error('section changed while editing'); }
       const summary = (out.summary || '').trim() || L(lang, `Edited ${secLabel(sec)}`, `${secLabel(sec)} 수정`);
       const why = (out.why || '').trim() || null;
-      await d.insert('changes', [{ id: changeId, room_id: roomId, section_id: sec.id, kind: 'agent', by_id: userId, by_name: userName, summary, why, prev: sec.paras, next: out.paras, message_id: messageId }]);
+      const written = await writeSectionChange(d, sec, out.paras, { id: changeId, kind: 'agent', by_id: userId, by_name: userName, summary, why, message_id: messageId });
+      if (written !== 'ok') { if (attempt === 0) continue; throw new Error(written); }
 
       /* conflict: Claude's call first, then the rule "someone else changed this paragraph in the last 30 minutes" */
       let conflict = null;
@@ -161,7 +161,7 @@ export async function runAgent(input, deps = {}) {
               system: draftPrompt({ sections: ctx.sections, theirs: contested.change, mine: { summary, why }, contested: { theirs: contested.theirs || (contested.change.next || []).join(' / '), mine: contested.mine || out.paras[contested.paraIndex] }, userName, lang }),
               messages: [{ role: 'user', content: 'Draft the discussion.' }], tool: DRAFT_TOOL, model, timeoutMs: Math.max(6000, DEADLINE_MS - (Date.now() - started) - 4000),
             });
-            if (draft && draft.discussion && Array.isArray(draft.discussion.options) && draft.discussion.options.length === 3 && !draft.discussion.options.some((o) => hasHangul(o.text))) { discussion = draft.discussion; note = note || draft.note; }
+            if (draft && draft.discussion && Array.isArray(draft.discussion.options) && draft.discussion.options.length === 3 && (!usesSampleLanguage(ctx.sections) || !draft.discussion.options.some((o) => hasHangul(o.text)))) { discussion = draft.discussion; note = note || draft.note; }
           } catch (e) { console.error('draft failed', e); }
         }
         const ch = contested.change;
@@ -170,7 +170,8 @@ export async function runAgent(input, deps = {}) {
         if (discussion) {
           const n = ctx.discs.reduce((a, x) => Math.max(a, x.n), 0) + 1;
           const options = discussion.options.map((o, i) => ({ id: 'ABC'[i], label: o.label, label_en: o.labelEn || o.label, desc: o.desc || '', text: o.text }));
-          const disc = { id: newId('d'), room_id: roomId, n, section_id: sec.id, para_index: contested.paraIndex, change_ids: [ch.id, changeId], title: discussion.title, title_en: discussion.titleEn || discussion.title, question: discussion.question, options, status: 'open', opened_by_id: 'agent', opened_by_name: 'Agent' };
+          const opener = userId.startsWith('bot_') && deps.discussionOwner?.userId ? deps.discussionOwner : who;
+          const disc = { id: newId('d'), room_id: roomId, n, section_id: sec.id, para_index: contested.paraIndex, change_ids: [ch.id, changeId], title: discussion.title, title_en: discussion.titleEn || discussion.title, question: discussion.question, options, status: 'open', opened_by_id: opener.userId, opened_by_name: opener.userName };
           await d.insert('discussions', [disc]);
           const votes = botVotes(ctx.room, disc, contested, userId, lang);
           if (votes.length) await d.insert('votes', votes);

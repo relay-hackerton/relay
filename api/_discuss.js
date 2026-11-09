@@ -17,6 +17,10 @@ export async function runDiscuss(input, deps = {}) {
   if (options.length < 2) return { status: 400, body: { error: 'at least two options' } };
   const [room] = await d.select('rooms', `id=${d.eq(roomId)}`);
   if (!room) return { status: 404, body: { error: 'room not found' } };
+  if (sectionId) {
+    const [section] = await d.select('sections', `room_id=${d.eq(roomId)}&id=${d.eq(sectionId)}&select=id`);
+    if (!section) return { status: 404, body: { error: 'section not found' } };
+  }
   const discs = await d.select('discussions', `room_id=${d.eq(roomId)}&select=id,n,section_id,status`);
   if (sectionId && discs.some((x) => x.section_id === sectionId && x.status === 'open')) return { status: 409, body: { error: 'exists' } };
   const n = discs.reduce((a, x) => Math.max(a, x.n), 0) + 1;

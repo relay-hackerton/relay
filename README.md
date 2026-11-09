@@ -6,15 +6,16 @@
 
 > c0mpiled-17 Seoul · YC RFS Fall 2026 · **Multiplayer AI**
 
-## Try it (3 minutes, alone)
+## Use the workspace
 
-1. Open the demo link, type your name, **Start a room**. You get your own copy of a product spec that Minsu and Jieun already worked on.
-2. **Bring in a teammate.** Jieun asks the agent to change section 3. Watch the document change in place; click her name tag to see why and her conversation.
-3. Send the suggested request: *"Switch the team invite in section 3 to manual invites."* The agent applies it and flags that opinions differ.
-4. Open the discussion. Minsu and Jieun voted on different sides, so your vote decides. **Conclude**: the agent updates section 3 and the decision log.
-5. **Copy invite link** to bring a real person in. Edit any section directly too; everyone sees it live and it is logged with a diff.
+1. Choose a nickname and add an issue from the workspace. Start with a blank document, a spec template, or an imported Markdown, text, Word (`.docx`), or PDF file.
+2. Open the same workspace in a second browser to see the new issue appear. Each issue has its own document, discussions, and activity URLs.
+3. Edit a section directly or ask the agent to update it. Open the section's History to compare or restore an earlier version. A restore adds a revision and keeps the version it replaced.
+4. Open a discussion and ask teammates to vote or comment. The opener can conclude it. For an automatically opened conflict discussion, the person who requested the conflicting edit is the opener.
 
-## What is real
+The issue list is shared across the deployment. File import extracts text and supported headings in the browser. PDF import requires selectable text and supports up to 100 pages. Imports have a 10 MB file limit, a 30,000-character text limit, and a 200-section limit.
+
+## Collaboration
 
 | | |
 | --- | --- |
@@ -24,7 +25,7 @@
 | Conflicts | Detected when an edit rewrites a paragraph someone else changed in the last 30 minutes; the agent drafts a 3-option discussion |
 | Presence | Who is online and which section they are reading or editing |
 | Direct edits | Section-level, guarded by a revision check so nobody overwrites anyone |
-| Teammate bot | Jieun's request goes through the same real agent pipeline |
+| Shared issues | New issues appear in the workspace as soon as their room and starter document are saved |
 
 ## How it works
 
@@ -35,7 +36,7 @@ Browser (HTML/CSS/JS, no build)  ──reads, realtime, presence, own messages &
                                                                        (service key: the only writer of the document)
 ```
 
-- `api/_agent.js` — lock → read document, recent changes, your last 8 messages → model → validate (section exists, English body, ≤3 new paragraphs) → write section (rev check), change, discussion, reply → unlock
+- `api/_agent.js` — lock → read document, recent changes, your last 8 messages → model → validate (section exists, ≤3 new paragraphs) → write section (rev check), change, discussion, reply → unlock
 - `api/_resolve.js` — applies the winning option to the section and the decision log, no model call
 - `supabase/schema.sql` — tables, row-level security (the browser can only read, post its own messages and vote), the agent lock
 - `docs/PLAN.md` — the full build plan
@@ -47,6 +48,12 @@ MOCK=1 node dev-server.mjs   # no keys: in-memory DB, scripted agent, simulated 
 node scripts/check.mjs       # server flow test (room → bot → conflict → discussion → resolve → direct edit)
 ```
 
-With real services: run `supabase/schema.sql` in Supabase, copy `.env.example` to `.env.local`, fill the keys, then `node dev-server.mjs` (or `vercel dev`).
+With real services, apply `supabase/schema.sql` in Supabase, copy `.env.example` to `.env.local`, fill the keys, then run `node dev-server.mjs` (or `vercel dev`).
+
+## Upgrade an existing deployment
+
+Apply `supabase/schema.sql` to the target database **before** deploying this version. The schema can be reapplied and adds the issue directory and transactional section history functions. Existing rooms stay accessible through their current links. The directory lists newly created issues.
+
+Nickname sessions now use a signed, HTTP-only cookie. Set a stable `RELAY_SESSION_SECRET` to keep sessions independent of service-role key rotation. Browsers with only a legacy local nickname need to register a new nickname. Historical authorship is preserved. To recover an open legacy discussion, a database operator can remap its `opened_by_id` to the original opener's new profile ID after verifying their identity.
 
 Built in 5 hours at c0mpiled-17 Seoul, 2026-11-09.

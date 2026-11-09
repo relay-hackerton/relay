@@ -1,35 +1,71 @@
 /* POST /api/room { document? } → { roomId }. An empty request starts the demo. */
-import { db, handler, newId, shortId, uuid } from './_lib.js';
+import { db, L, newId, shortId, uuid } from './_lib.js';
+import { withProfile } from './_session.js';
 import { DOC_TITLE, SECTIONS, HISTORY } from './_seed.js';
 
 const MAX_DOCUMENT = 30000;
 
-function importSections({ text, markdown }) {
+const PAGE_CHARS = 2400;
+const MAX_SECTIONS = 200;
+const DECISION_LOG = SECTIONS.find((s) => s.id === 's8');
+
+function importSections(text, { markdown, lang }) {
   const sections = [];
-  let title = 'Document';
-  let lines = [];
-  const finish = () => {
-    const paras = (markdown ? lines.join('\n').split(/\n[ \t]*\n/) : lines).flatMap((block) => {
-      const paragraph = block.replace(/\s+/g, ' ').trim();
-      return paragraph.match(/.{1,600}(?:\s|$)|.{1,600}/gu)?.map((part) => part.trim()).filter(Boolean) || [];
-    });
-    if (paras.length) {
-      const num = sections.length + 1;
-      sections.push({ id: `import-${num}`, num, title, paras });
+  let page = 1;
+  for (const sourcePage of text.split('\f')) {
+    let title = L(lang, 'Document', '문서');
+    let lines = [];
+    let used = 0;
+    let headingSection;
+    const finish = () => {
+      const blocks = markdown ? lines.join('\n').split(/\n[ \t]*\n/) : lines;
+      const paras = blocks.flatMap((block) => block.replace(/\s+/g, ' ').trim().match(/.{1,600}(?:\s|$)|.{1,600}/gu) || []);
+      let part = headingSection;
+      for (const text of paras) {
+        const para = text.trim();
+        if (!para) continue;
+        if (used && used + para.length + 35 > PAGE_CHARS) {
+          page++;
+          used = 0;
+          part = null;
+        }
+        if (!part) {
+          const num = sections.length + 1;
+          part = { id: `import-${num}`, num, title, paras: [], page };
+          sections.push(part);
+        }
+        part.paras.push(para);
+        used += para.length + 35;
+      }
+      lines = [];
+      headingSection = null;
+    };
+    for (const line of sourcePage.replace(/\r\n?/g, '\n').split('\n')) {
+      const heading = markdown && /^#{1,6}\s+(.+)$/.exec(line);
+      if (heading) {
+        finish();
+        title = heading[1].trim().slice(0, 120);
+        // Keep headings even when the next line is another heading.
+        if (used && used + title.length + 50 > PAGE_CHARS) { page++; used = 0; }
+        headingSection = { id: `import-${sections.length + 1}`, num: sections.length + 1, title, paras: [], page };
+        sections.push(headingSection);
+        used += title.length + 50;
+      } else {
+        lines.push(line);
+      }
     }
-    lines = [];
-  };
-  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
-    const heading = markdown && /^#{1,6}\s+(.+)$/.exec(line);
-    if (heading) { finish(); title = heading[1].trim().slice(0, 120); }
-    else lines.push(line);
-  }
-  finish();
-  if (sections.length) {
-    const decisionLog = SECTIONS.find((s) => s.id === 's8');
-    sections.push({ ...decisionLog, num: sections.length + 1 });
+    finish();
+    if (used) page++;
   }
   return sections;
+}
+
+function starterSections(start, goal, lang) {
+  const titles = start === 'blank' ? [L(lang, 'Document', '문서')] :
+    L(lang, ['Background', 'Goals', 'Core features', 'User flow'], ['배경', '목표', '핵심 기능', '사용자 흐름']);
+  return titles.map((title, i) => ({
+    id: `issue-${i + 1}`, num: i + 1, title, paras: goal && i === (start === 'blank' ? 0 : 1) ? [goal] : [], page: 1,
+  }));
 }
 
 function insertSections(d, roomId, sections, last = {}) {
@@ -39,19 +75,8 @@ function insertSections(d, roomId, sections, last = {}) {
   })));
 }
 
-export async function createRoom(d = db, document = undefined) {
+export async function createRoom(d = db) {
   const roomId = shortId(6);
-  if (document) {
-    await d.insert('rooms', [{ id: roomId, title: document.title }]);
-    try {
-      await insertSections(d, roomId, document.sections);
-    } catch (error) {
-      try { await d.delete('rooms', `id=${d.eq(roomId)}`); }
-      catch (cleanupError) { console.error('import cleanup failed', cleanupError); }
-      throw error;
-    }
-    return roomId;
-  }
   const now = Date.now();
   await d.insert('rooms', [{ id: roomId, title: DOC_TITLE }]);
   const changes = [], messages = [], last = {};
@@ -73,14 +98,33 @@ export async function createRoom(d = db, document = undefined) {
   return roomId;
 }
 
-export default handler(async ({ document }) => {
-  if (document === undefined) return { roomId: await createRoom() };
+export async function runCreateRoom({ document, userId, userName }, d = db) {
+  if (document === undefined) return { roomId: await createRoom(d) };
   const invalid = { status: 400, body: { error: 'invalid_document' } };
+  const large = { status: 413, body: { error: 'document_too_large' } };
   const title = typeof document?.title === 'string' ? document.title.trim() : '';
-  const text = typeof document?.text === 'string' ? document.text.trim() : '';
-  if (!title || title.length > 80 || title.includes('\0') || !text || text.includes('\0')) return invalid;
-  if (text.length > MAX_DOCUMENT) return { status: 413, body: { error: 'document_too_large' } };
-  const sections = importSections({ text, markdown: document.markdown === true });
-  if (!sections.length) return invalid;
-  return { roomId: await createRoom(db, { title, sections }) };
-});
+  const goal = typeof document?.goal === 'string' ? document.goal.trim() : '';
+  const start = document?.start ?? 'import';
+  const lang = document?.lang === 'ko' ? 'ko' : 'en';
+  if (!title || title.length > 80 || goal.length > 140 || /\0/.test(title + goal)) return invalid;
+  if (!['blank', 'template', 'import'].includes(start)) return invalid;
+  let sections;
+  if (start === 'import') {
+    const text = typeof document.text === 'string' ? document.text.trim() : '';
+    if (!text || text.includes('\0')) return invalid;
+    if (text.length > MAX_DOCUMENT) return large;
+    sections = importSections(text, { markdown: document.markdown === true, lang });
+    if (!sections.length) return invalid;
+    if (sections.length > MAX_SECTIONS) return { status: 413, body: { error: 'document_too_many_sections' } };
+  } else {
+    sections = starterSections(start, goal, lang);
+  }
+  sections.push({ ...DECISION_LOG, num: sections.length + 1, page: sections.at(-1).page });
+  const roomId = shortId(6);
+  await d.rpc('create_issue', {
+    p_id: roomId, p_title: title, p_issue: { goal, byId: userId, byName: userName }, p_sections: sections,
+  });
+  return { roomId };
+}
+
+export default withProfile((body) => runCreateRoom(body));

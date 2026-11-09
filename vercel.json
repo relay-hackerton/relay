@@ -1,5 +1,5 @@
 {
   "functions": { "api/*.js": { "maxDuration": 60 } },
-  "rewrites": [{ "source": "/r/:id", "destination": "/index.html" }],
+  "rewrites": [{ "source": "/r/:id", "destination": "/index.html" }, { "source": "/r/:id/discussions", "destination": "/index.html" }, { "source": "/r/:id/activity", "destination": "/index.html" }],
   "headers": [{ "source": "/api/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }]
 }

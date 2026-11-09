@@ -28,6 +28,32 @@ window.Store = (() => {
     return j;
   }
 
+  async function readAll(query) {
+    const rows = [];
+    const size = 200;
+    for (let offset = 0; ; offset += size) {
+      const { data, error } = await query().range(offset, offset + size - 1);
+      if (error) throw new Error(error.message);
+      rows.push(...data);
+      if (data.length < size) return rows;
+    }
+  }
+
+  function issues() {
+    need();
+    return readAll(() => sb.from('rooms').select('id,title,issue,created_at')
+      .not('issue', 'is', null).order('created_at', { ascending: false }).order('id', { ascending: false }));
+  }
+
+  function watchIssues(refresh) {
+    need();
+    sb.channel('issues')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'rooms' }, ({ new: row }) => {
+        if (row.issue) refresh();
+      })
+      .subscribe((status) => { if (status === 'SUBSCRIBED') refresh(); });
+  }
+
   function presenceList() {
     const now = Date.now();
     return Object.values(channel ? channel.presenceState() : {}).map((arr) => arr[arr.length - 1]).filter(Boolean)
@@ -119,17 +145,17 @@ window.Store = (() => {
     const [room, sections, changes, messages, discussions, votes, reactions, comments] = await Promise.all([
       sb.from('rooms').select('*').eq('id', id).maybeSingle(),
       q('sections').order('num'),
-      q('changes').order('created_at'),
+      readAll(() => q('changes').order('created_at').order('id')),
       q('messages').order('created_at').limit(1000),
       q('discussions').order('n'),
       q('votes'),
       q('reactions'),
       q('comments').order('created_at'),
     ]);
-    const err = [room, sections, changes, messages, discussions, votes].find((x) => x.error);
+    const err = [room, sections, messages, discussions, votes].find((x) => x.error);
     if (err) throw new Error(err.error.message);
     if (!room.data) throw new Error('room_not_found');
-    return { room: room.data, sections: sections.data, changes: changes.data, messages: messages.data, discussions: discussions.data, votes: votes.data,
+    return { room: room.data, sections: sections.data, changes, messages: messages.data, discussions: discussions.data, votes: votes.data,
       reactions: reactions.error ? [] : reactions.data, comments: comments.error ? [] : comments.data, presence: presenceList() };
   }
 
@@ -150,7 +176,7 @@ window.Store = (() => {
     const ins = await sb.from('messages').insert({ room_id: roomId, user_id: me.userId, user_name: me.name, role: 'user', text: body, meta: { avatar: me.avatar } });
     if (ins.error) return { error: ins.error.message };
     for (let i = 0; i < 45; i++) {
-      const res = await api('agent', { roomId, userId: me.userId, userName: me.name, text: body, lang, model });
+      const res = await api('agent', { roomId, text: body, lang, model });
       if (!res.queued) { if (onQueued) onQueued(false); return res; }
       if (onQueued) onQueued(true);
       await wait(2000);
@@ -167,7 +193,7 @@ window.Store = (() => {
 
   async function resolve(discussionId, optionId, { lang = 'en' } = {}) {
     for (let i = 0; i < 30; i++) {
-      const res = await api('resolve', { roomId, discussionId, optionId: optionId || undefined, userId: me.userId, userName: me.name, lang });
+      const res = await api('resolve', { roomId, discussionId, optionId: optionId || undefined, lang });
       if (!res.queued) return res;
       await wait(2000);
     }
@@ -176,7 +202,7 @@ window.Store = (() => {
 
   const bot = ({ lang = 'en' } = {}) => api('bot', { roomId, lang });
   /* a person opens a discussion (compose form) */
-  const discuss = (d, { lang = 'en' } = {}) => api('discuss', { roomId, userId: me.userId, userName: me.name, lang, ...d });
+  const discuss = (d, { lang = 'en' } = {}) => api('discuss', { roomId, lang, ...d });
   async function comment(discussionId, text) {
     need();
     const r = await sb.from('comments').insert({ discussion_id: discussionId, room_id: roomId, user_id: me.userId, user_name: me.name, text: String(text).slice(0, 400) });
@@ -189,7 +215,9 @@ window.Store = (() => {
     return r.error ? { error: r.error.message } : { ok: true };
   }
   /* a direct edit of one section; rev is the version I started from */
-  const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, userId: me.userId, userName: me.name, sectionId, paras, rev, lang });
+  const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, sectionId, paras, rev, lang });
+  const restore = (sectionId, changeId, version, rev, { lang = 'en' } = {}) =>
+    api('edit', { roomId, sectionId, restore: { changeId, version }, rev, lang });
   const profile = (body) => api('profile', body);
   const createRoom = async (document) => { const r = await api('room', { document }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
 
@@ -205,5 +233,5 @@ window.Store = (() => {
     }
   }
 
-  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, profile, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
+  return { join, snapshot, issues, watchIssues, on, say, vote, resolve, bot, edit, restore, discuss, comment, like, profile, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
 })();

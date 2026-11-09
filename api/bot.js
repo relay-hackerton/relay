@@ -1,5 +1,6 @@
 /* POST /api/bot { roomId, lang } → { ok }  "Bring in a teammate": Jieun sends a fixed request through the real agent pipeline. */
-import { db as realDb, handler, uuid } from './_lib.js';
+import { db as realDb, uuid } from './_lib.js';
+import { withProfile } from './_session.js';
 import { runAgent } from './_agent.js';
 import { BOTS, BOT_REQUEST } from './_seed.js';
 
@@ -19,11 +20,11 @@ export async function runBot(input, deps = {}) {
   await d.update('rooms', `id=${d.eq(roomId)}`, { bots_on: true });
   await d.insert('messages', [{ id: uuid(), room_id: roomId, user_id: bot.id, user_name: bot.name, role: 'user', text: BOT_REQUEST, meta: { avatar: bot.avatar, bot: true } }]);
   for (let i = 0; i < 12; i++) {
-    const r = await runAgent({ roomId, userId: bot.id, userName: bot.name, text: BOT_REQUEST, lang }, deps);
+    const r = await runAgent({ roomId, userId: bot.id, userName: bot.name, text: BOT_REQUEST, lang }, { ...deps, discussionOwner: input });
     if (!r.queued) return r;
     await sleep(deps.retryMs ?? 2000);
   }
   return { queued: true };
 }
 
-export default handler((body) => runBot(body));
+export default withProfile(runBot);

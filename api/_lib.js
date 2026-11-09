@@ -60,7 +60,7 @@ export function send(res, status, obj) {
 export function handler(fn) {
   return async (req, res) => {
     if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
-    try { const body = await readBody(req); const out = await fn(body, req); send(res, (out && out.status) || 200, (out && out.body) || out); }
+    try { const body = await readBody(req); const out = await fn(body, req, res); send(res, (out && out.status) || 200, (out && out.body) || out); }
     catch (e) { console.error(e); send(res, 500, { error: String(e.message || e) }); }
   };
 }
@@ -82,3 +82,10 @@ export async function setAgentSection(roomId, lock, byId, byName, sectionId, d =
 
 export const hasHangul = (s) => /[ᄀ-ᇿ㄰-㆏가-힯]/.test(String(s || ''));
 export const L = (lang, en, ko) => (lang === 'ko' ? ko : en);
+
+export async function writeSectionChange(d, section, next, change, { guardOpen = true } = {}) {
+  return d.rpc('write_section_change', {
+    p_room: section.room_id, p_section: section.id, p_rev: section.rev,
+    p_next: next, p_change: change, p_guard_open: guardOpen,
+  });
+}

@@ -33,6 +33,23 @@ export function mockDb() {
       T[table] = T[table].filter((row) => !match(row, f));
     },
     async rpc(fn, a) {
+      if (fn === 'create_issue') {
+        const { p_id, p_title, p_issue, p_sections } = a;
+        await insert('rooms', [{ id: p_id, title: p_title, issue: p_issue }]);
+        await insert('sections', p_sections.map((s) => ({ ...s, room_id: p_id, rev: 0 })));
+        return null;
+      }
+      if (fn === 'write_section_change') {
+        const { p_room, p_section, p_rev, p_next, p_change, p_guard_open } = a;
+        const section = T.sections.find((s) => s.room_id === p_room && s.id === p_section);
+        if (!section) return 'section not found';
+        if (section.rev !== p_rev) return 'stale';
+        if (p_guard_open && T.discussions.some((x) => x.room_id === p_room && x.section_id === p_section && x.status === 'open')) return 'frozen';
+        const prev = section.paras;
+        Object.assign(section, { paras: clone(p_next), rev: p_rev + 1, last_change_id: p_change.id });
+        await insert('changes', [{ ...p_change, room_id: p_room, section_id: p_section, prev, next: p_next }]);
+        return 'ok';
+      }
       const room = T.rooms.find((r) => r.id === a.p_room);
       if (fn === 'acquire_agent') {
         if (!room) return -1;
@@ -44,5 +61,6 @@ export function mockDb() {
       throw new Error(`unknown rpc ${fn}`);
     },
   };
+  const insert = db.insert;
   return { db, T };
 }

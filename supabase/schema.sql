@@ -1,4 +1,4 @@
--- Relay MVP schema. Run once in the Supabase SQL editor.
+-- Relay schema. Apply in the Supabase SQL editor before deploying app changes.
 -- Browser (anon key): read everything, insert own user messages, insert/update own votes.
 -- Functions (service role key): everything else.
 
@@ -208,3 +208,41 @@ create table if not exists profiles (
 create unique index if not exists profiles_name_unique on profiles (lower(name));
 alter table profiles enable row level security;
 drop policy if exists read_all on profiles; create policy read_all on profiles for select using (true);
+
+-- Shared issue directory. Existing rooms keep their invite URLs and stay off the directory.
+alter table rooms add column if not exists issue jsonb;
+create index if not exists rooms_issue_created on rooms (created_at desc, id desc) where issue is not null;
+
+create or replace function public.create_issue(p_id text, p_title text, p_issue jsonb, p_sections jsonb)
+returns void language plpgsql set search_path = '' as $$
+begin
+  insert into public.rooms (id, title, issue) values (p_id, p_title, p_issue);
+  insert into public.sections (room_id, id, num, title, paras, page)
+  select p_id, s.id, s.num, s.title, s.paras, s.page
+  from jsonb_to_recordset(p_sections) as s(id text, num int, title text, paras jsonb, page int);
+end $$;
+
+-- Record the section revision and its history in the same transaction.
+create or replace function public.write_section_change(p_room text, p_section text, p_rev int, p_next jsonb, p_change jsonb, p_guard_open boolean)
+returns text language plpgsql set search_path = '' as $$
+declare current_section public.sections%rowtype;
+begin
+  select * into current_section from public.sections where room_id = p_room and id = p_section for update;
+  if not found then return 'section not found'; end if;
+  if current_section.rev <> p_rev then return 'stale'; end if;
+  if p_guard_open and exists (
+    select 1 from public.discussions where room_id = p_room and section_id = p_section and status = 'open'
+  ) then return 'frozen'; end if;
+
+  insert into public.changes (id, room_id, section_id, kind, by_id, by_name, summary, why, prev, next, discussion_id, message_id)
+  values (p_change->>'id', p_room, p_section, p_change->>'kind', p_change->>'by_id', p_change->>'by_name',
+          p_change->>'summary', p_change->>'why', current_section.paras, p_next, p_change->>'discussion_id', (p_change->>'message_id')::uuid);
+  update public.sections set paras = p_next, rev = p_rev + 1, last_change_id = p_change->>'id'
+  where room_id = p_room and id = p_section;
+  return 'ok';
+end $$;
+
+revoke execute on function public.create_issue(text, text, jsonb, jsonb) from anon, authenticated, public;
+revoke execute on function public.write_section_change(text, text, int, jsonb, jsonb, boolean) from anon, authenticated, public;
+grant execute on function public.create_issue(text, text, jsonb, jsonb) to service_role;
+grant execute on function public.write_section_change(text, text, int, jsonb, jsonb, boolean) to service_role;

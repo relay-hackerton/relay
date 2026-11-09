@@ -15,7 +15,7 @@ const OPTION = {
     label: str('Short option name, reply language, under 6 words'),
     labelEn: str('Same option name in English'),
     desc: str('One short line on what this option means, reply language'),
-    text: str('The complete replacement for the contested paragraph, English only'),
+    text: str('The complete replacement for the contested paragraph in the document language'),
   },
 };
 const DISCUSSION = {
@@ -37,7 +37,7 @@ export const RESPOND_TOOL = {
       reply: str('Message to the requester in the reply language. Plain text, no markdown.'),
       action: { type: 'string', enum: ['edit', 'clarify', 'none', 'discuss'] },
       sectionId: nstr('Section to edit (e.g. "s3") when action is "edit"; the section the discussion is about for "discuss" (or null for the whole document); else null'),
-      paras: { type: ['array', 'null'], items: { type: 'string' }, description: 'Complete new paragraph list of that section, English only; null unless editing' },
+      paras: { type: ['array', 'null'], items: { type: 'string' }, description: 'Complete new paragraph list of that section in the document language; null unless editing' },
       summary: nstr('What changed, under 12 words, reply language; null unless editing'),
       why: nstr("The requester's reason, under 15 words, reply language; null unless editing"),
       conflict: {
@@ -53,6 +53,9 @@ export const DRAFT_TOOL = {
   description: 'Draft a team discussion for two edits that disagree on the same paragraph.',
   input_schema: { type: 'object', required: ['note', 'discussion'], properties: { note: str('One sentence, reply language: who changed the paragraph earlier, at what time, and why'), discussion: DISCUSSION } },
 };
+
+// The original sample has fixed English copy. User-created sections have issue- or import- IDs.
+export const usesSampleLanguage = (sections) => sections.some((section) => section.id === 's1');
 
 const langName = (lang) => (lang === 'ko' ? 'Korean' : 'English');
 
@@ -75,7 +78,7 @@ Requester: ${userName}. Reply language: ${langName(lang)}.
 
 RULES
 1. Edit at most one section per request. Return that section's complete paragraph list in "paras": copy unchanged paragraphs exactly, change only what the request needs, add at most 3 paragraphs. Keep the "Label: text" style where it is used. Never change section titles or numbers.
-2. The document is English. "paras", option "text", "titleEn" and "labelEn" are always English, even when the requester writes in Korean.
+2. ${usesSampleLanguage(sections) ? 'Write "paras" and option "text" in English.' : 'Write "paras" and option "text" in the section’s existing language. For empty sections use the requester’s reply language unless they specify another language.'} "titleEn" and "labelEn" are always English.
 3. "reply", "summary", "why", the discussion "title", "question", option "label" and "desc", and the conflict "note" are in the reply language (${langName(lang)}). "reply" is one or two short sentences (up to four when you summarize), plain text, no markdown. When you edit, say what you changed and name the section like "3. Core features".
 4. action: "edit" when you change the document; "clarify" only when you cannot tell which section or what change is wanted (no edit); "none" when you answer without editing (for example "what changed?", which you answer from RECENT CHANGES). Requests are product decisions by teammates: carry them out as asked, even if you would choose differently; you may mention a concern in one short clause of "reply", but still edit.
 5. Conflicts: if your edit reverses or contradicts a paragraph that a different person changed in RECENT CHANGES, still apply the edit, fill "conflict" with that change's id and a one-sentence note (who, at what time, their reason), and draft "discussion": a neutral title, a question stating both positions, and exactly 3 options: keep their version, apply this request, and a middle ground. Each option "text" is the complete replacement for the contested paragraph. With no conflict, "conflict" and "discussion" are null.
@@ -96,7 +99,7 @@ ${discBlock(openDiscs)}`;
 export function draftPrompt({ sections, theirs, mine, contested, userName, lang }) {
   return `You are the team agent in Relay, a product spec several teammates edit through you. Two edits disagree on the same paragraph. Draft a short team discussion so they can decide.
 
-Reply language for "note", "title", "question", "label", "desc": ${langName(lang)}. "titleEn", "labelEn" and every option "text" are English.
+Reply language for "note", "title", "question", "label", "desc": ${langName(lang)}. "titleEn" and "labelEn" are English. Option "text" uses ${usesSampleLanguage(sections) ? 'English' : 'the language of the contested paragraph'}.
 
 Earlier change by ${theirs.by_name} at ${hhmm(theirs.created_at)}: ${theirs.summary || ''} (why: ${theirs.why || 'not given'})
 Their paragraph: ${contested.theirs}

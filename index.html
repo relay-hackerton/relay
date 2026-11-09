@@ -5,7 +5,7 @@
 <div class="orbs" aria-hidden="true"><span class="orb b"></span><span class="orb v"></span><span class="orb c"></span><span class="orb p"></span></div>
 <div class="app">
   <header class="top">
-    <button class="brand" data-home><span class="brand-mark" aria-hidden="true"></span>Relay</button>
+    <a class="brand" href="/" data-home><span class="brand-mark" aria-hidden="true"></span>Relay</a>
     <span class="top-sep work-only" aria-hidden="true"></span>
     <div class="doc-name work-only"><strong id="docTitle"></strong></div>
     <div class="top-right">
@@ -55,6 +55,7 @@
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 <div id="modalRoot"></div>
+<div id="historyRoot"></div>
 <script>
   (function () {
     var q = new URL(location.href).searchParams.get('lang');

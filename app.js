@@ -1,7 +1,7 @@
-/* Relay MVP: the prototype's screens, driven by Store (Supabase + /api). One agent, many people, every change traceable, live. */
+/* Relay workspace, shared document, and live collaboration. */
 (() => {
-  const { MEMBERS, EXTRA_MEMBERS, DOC_EN, LIBRARY } = window.SEED;
-  const DOC = DOC_EN;                      // the shared document body is English; UI strings follow the language toggle
+  const { MEMBERS, DOC_EN } = window.SEED;
+  const DOC = DOC_EN; // Legacy sample room copy.
   const { t, lang } = window.RelayI18N;
   const Diff = window.RelayDiff;
   const Store = window.Store;
@@ -23,8 +23,6 @@
 
   /* ---------- people: whoever shows up in presence, messages, changes and votes ---------- */
   const PHOTOS = { me: ['img/me.jpg', '#D9503B'], minsu: ['img/minsu.jpg', '#2E6BE0'], jieun: ['img/jieun.jpg', '#1E9A66'], hyunwoo: ['img/hyunwoo.jpg', '#D28B0A'] };
-  const AVATARS = Object.keys(PHOTOS).map((id) => `p:${id}`);
-  const randomAvatar = () => AVATARS[Math.floor(Math.random() * AVATARS.length)];
   const BOTS = { bot_jieun: { name: 'Jieun', avatar: 'p:jieun' }, bot_minsu: { name: 'Minsu', avatar: 'p:minsu' } };
   const people = new Map();
   const hashColor = (id) => { const c = ['#D9503B', '#2E6BE0', '#1E9A66', '#D28B0A', '#8B5CF6', '#0EA5A4']; let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return c[h % c.length]; };
@@ -51,8 +49,8 @@
   /* ---------- state ---------- */
   const state = {
     view: 'home', tab: 'doc', me: null, roomId: null, room: null, viewing: null, landing: { busy: false, err: '' },
-    importedRooms: loadImportedRooms(),
-    zoom: 100, page: 1, units: clone(LIBRARY).map((u) => (u.live ? { ...u, title: DOC_EN.title } : u)), issueDraft: null,
+    issues: [], legacyRooms: loadLegacyRooms(), issuesLoading: true, issuesError: false,
+    zoom: 100, page: 1, pageCount: 1,
     myPrivate: false,   // per visit: a session starts public
     sections: [], changeList: [], messages: [], discRows: [], votes: [], presence: [],
     editing: {}, recent: {}, showDiff: {}, unread: new Set(), lastSeen: {},
@@ -71,7 +69,8 @@
 
   const secById = (id) => state.sections.find((s) => s.id === id);
   const importedRoom = () => state.sections[0]?.id.startsWith('import-');
-  const documentLede = () => importedRoom() ? '' : DOC.lede;
+  const demoRoom = () => !state.room?.issue && !importedRoom();
+  const documentLede = () => demoRoom() ? DOC.lede : state.room?.issue?.goal || '';
   const secLabel = (id) => { const s = secById(id); return s ? `${s.num}. ${s.title}` : t('no_section'); };
   const secRef = (id) => secById(id) ? `<span class="sec-ref" data-goto="${id}">${esc(secLabel(id))}</span>` : t('no_section');
   const changesOf = (sid) => state.changeList.filter((c) => c.sectionId === sid);
@@ -324,8 +323,8 @@
     const list = state.messages.filter((m) => m.userId === id);
     const items = [];
     if (mine) {
-      const welcome = importedRoom() ? t('import_welcome', { name: esc(name(id)) }) : t('msg.welcome', { name: esc(name(id)) });
-      const teammate = importedRoom() || botDone() ? '' : `<div class="acts"><button class="btn primary" data-bot ${state.botBusy ? 'disabled' : ''}>${state.botBusy ? t('bot_busy') : t('bot_btn')}</button></div>`;
+      const welcome = demoRoom() ? t('msg.welcome', { name: esc(name(id)) }) : t('issue_welcome', { name: esc(name(id)) });
+      const teammate = !demoRoom() || botDone() ? '' : `<div class="acts"><button class="btn primary" data-bot ${state.botBusy ? 'disabled' : ''}>${state.botBusy ? t('bot_busy') : t('bot_btn')}</button></div>`;
       items.push({ role: 'agent', html: welcome + teammate, at: new Date(0) });
     }
     list.forEach((m) => items.push(m.role === 'agent' ? { role: 'agent', html: agentHtml(m), at: m.at, mid: m.id } : { role: 'me', text: m.text, at: m.at }));
@@ -342,7 +341,7 @@
   function localSay(html) { state.localMsgs.push({ role: 'agent', html, at: new Date() }); renderChat(); }
 
   function renderChips() {
-    const chips = importedRoom() ? [t('import_suggestion')] : t('chips');
+    const chips = demoRoom() ? t('chips') : [t('import_suggestion')];
     $('#chips').innerHTML = chips.map((c) => `<button type="button" class="chip">${esc(c)}</button>`).join('');
   }
   function renderCtx() {
@@ -351,8 +350,8 @@
   }
 
   /* if realtime did not bring anything after one of my calls, read the room again (dropped socket, throttling) */
-  function catchUp(since) {
-    setTimeout(() => { if (Store.lastEventAt() < since && state.view === 'doc') Store.snapshot().then((d) => applySnapshot(d, false)).catch(() => {}); }, 1500);
+  function catchUp(since, sectionId, rev) {
+    setTimeout(() => { if ((sectionId ? secById(sectionId)?.rev < rev : Store.lastEventAt() < since) && state.view === 'doc') Store.snapshot().then((d) => applySnapshot(d, false)).catch(() => {}); }, 1500);
   }
   async function send(text) {
     if (state.viewing !== ME() || state.pending) return;
@@ -377,17 +376,24 @@
     if (r && r.error) toast(t('err_generic', { err: r.error }));
   }
   function copyRoomLink() {
-    const url = `${location.origin}/r/${state.roomId}`;
+    const url = new URL(roomPath(state.roomId), location.origin).href;
     const done = () => toast(t('toast_copied'));
     if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, () => prompt('', url)); else prompt('', url);
   }
 
   /* ---------- tabs ---------- */
-  function setTab(tab) {
+  function setTab(tab, updateUrl = true) {
+    const changed = state.tab !== tab;
     state.tab = tab;
+    if (updateUrl && state.roomId && readRoute().tab !== tab) history.pushState(null, '', roomPath(state.roomId, tab));
+    if (changed) {
+      $('#leftScroll').scrollTop = 0;
+      state.openPop = null;
+      renderHistoryPop();
+    }
     ['doc', 'disc', 'log'].forEach((x) => { $(`#tab${x[0].toUpperCase() + x.slice(1)}`).setAttribute('aria-selected', x === tab); $(`#${x}Pane`).hidden = x !== tab; });
     $('#viewer').hidden = tab !== 'doc';
-    if (tab === 'doc') { renderReadingAvatars(); trackMySection(); }
+    if (tab === 'doc') { renderReadingAvatars(); updatePage(); trackMySection(); }
     else Store.setPresence({ sectionId: null });
   }
   function renderExport() { renderViewer(); }
@@ -396,10 +402,10 @@
     const title = (state.room && state.room.title) || DOC.title;
     v.innerHTML = `<span class="name">${esc(title)} · ${t('spec')}</span><span class="spacer"></span>
       <span class="grp export"><button data-export-menu aria-expanded="${!!state.exportOpen}">${t('export_btn')}</button>${state.exportOpen ? `<div class="export-menu">${window.RelayExport.FORMATS.map((f) => `<button type="button" data-export="${f}">${esc(t('export_' + f))}</button>`).join('')}</div>` : ''}</span>
-      <span class="grp"><button data-page="-1" aria-label="${t('prev_page')}" ${state.page === 1 ? 'disabled' : ''}>${icon('back')}</button><span class="mono">${state.page} / 2</span><button data-page="1" aria-label="${t('next_page')}" ${state.page === 2 ? 'disabled' : ''}>${icon('next')}</button></span>
+      <span class="grp"><button data-page="-1" aria-label="${t('prev_page')}" ${state.page <= 1 ? 'disabled' : ''}>${icon('back')}</button><span class="mono">${state.page} / ${state.pageCount}</span><button data-page="1" aria-label="${t('next_page')}" ${state.page >= state.pageCount ? 'disabled' : ''}>${icon('next')}</button></span>
       <span class="grp"><button data-zoom="-10" aria-label="${t('zoom_out')}" ${state.zoom <= 80 ? 'disabled' : ''}>${icon('minus')}</button><span class="mono">${state.zoom}%</span><button data-zoom="10" aria-label="${t('zoom_in')}" ${state.zoom >= 130 ? 'disabled' : ''}>${icon('plus')}</button></span>`;
   }
-  function gotoPage(n) { const el = $$('.paper')[n - 1]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  function gotoPage(n) { const el = $$('#docPane .paper')[n - 1]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   function doExport(format) {
     state.exportOpen = false; renderExport();
     let ok;
@@ -408,7 +414,10 @@
     if (ok === false) toast(t('export_blocked'));
     if (ok && typeof ok.then === 'function') ok.catch((e) => toast(t('err_generic', { err: e.message })));
   }
-  function renderDocMeta() { $('#tabsHint').innerHTML = `<span class="mono">${esc(DOC.version)}</span> · ${t('last_applied')} <span class="mono">${fmt(latestChangeTime())}</span>`; }
+  function renderDocMeta() {
+    const last = latestChangeTime();
+    $('#tabsHint').innerHTML = [demoRoom() ? `<span class="mono">${esc(DOC.version)}</span>` : '', last ? `${t('last_applied')} <span class="mono">${fmt(last)}</span>` : ''].filter(Boolean).join(' · ');
+  }
   function renderTabs() {
     $('#docCount').textContent = state.unread.size; $('#docCount').hidden = state.unread.size === 0; $('#docCount').classList.toggle('hot', state.unread.size > 0);
     const open = state.discRows.filter((d) => d.status === 'open').length;
@@ -425,16 +434,25 @@
     const keep = state.myEdit && $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`);
     const keepHtml = keep ? keep.innerHTML : null; const hadFocus = keep && document.activeElement === keep; const caret = hadFocus ? saveCaret(keep) : null;
     const title = (state.room && state.room.title) || DOC.title;
-    const footer = importedRoom() ? title : DOC.footer;
+    const footer = demoRoom() ? DOC.footer : title;
     $('#docTitle').textContent = title;
-    const p1 = state.sections.filter((s) => (s.page || 1) === 1), p2 = state.sections.filter((s) => s.page === 2);
-    $('#docPane').innerHTML = `
-      <div class="paper-wrap" style="--zoom:${state.zoom / 100}">
-        <article class="paper"><h1>${esc(title)}</h1>${documentLede() ? `<p class="lede">${esc(documentLede())}</p>` : ''}${p1.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(footer)}</span><span>01 / 02</span></div></article>
-        <article class="paper">${p2.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(footer)}</span><span>02 / 02</span></div></article>
-      </div>`;
+    const groups = new Map();
+    for (const section of state.sections) {
+      if (!groups.has(section.page)) groups.set(section.page, []);
+      groups.get(section.page).push(section);
+    }
+    const pages = [...groups.keys()].sort((a, b) => a - b).map((page) => groups.get(page));
+    if (!pages.length) pages.push([]);
+    state.pageCount = pages.length;
+    state.page = Math.min(state.page, state.pageCount);
+    const number = (n) => String(n).padStart(2, '0');
+    const lede = documentLede();
+    $('#docPane').innerHTML = `<div class="paper-wrap" style="--zoom:${state.zoom / 100}">${pages.map((sections, i) =>
+      `<article class="paper">${i === 0 ? `<h1>${esc(title)}</h1>${lede ? `<p class="lede">${esc(lede)}</p>` : ''}` : ''}
+      ${sections.map(renderSection).join('')}<div class="paper-foot mono"><span>${esc(footer)}</span><span>${number(i + 1)} / ${number(pages.length)}</span></div></article>`
+    ).join('')}</div>`;
     if (keepHtml != null) { const el = $(`.sec[data-id="${state.myEdit}"] .sec-body.editable`); if (el) { el.innerHTML = keepHtml; if (hadFocus) { el.focus(); if (caret != null) restoreCaret(el, caret); } } }
-    renderViewer(); renderDocMeta(); renderReadingAvatars();
+    updatePage(); renderViewer(); renderDocMeta(); renderReadingAvatars(); renderHistoryPop();
   }
   /* keep my caret where it was when the document re-renders under me */
   function saveCaret(root) {
@@ -458,6 +476,7 @@
     const tmp = document.createElement('div'); tmp.innerHTML = renderSection(sec).trim();
     el.replaceWith(tmp.firstElementChild);
     renderReadingAvatars();
+    if (state.openPop === id) renderHistoryPop();
   }
   function renderSection(sec) {
     const ch = latestChange(sec.id);
@@ -468,11 +487,11 @@
     const changedIdx = unread ? Diff.changedIndices(state.lastSeen[sec.id] || ch.prev, sec.paras) : new Set();
     const hed = humanEditing(sec.id), mine = state.myEdit === sec.id;
     let inner, body;
-    if (mine) body = `<div class="sec-body editable" contenteditable="true" spellcheck="false" tabindex="0">${sec.paras.map((p) => `<p class="${sec.steps ? 'step' : ''}">${esc(p)}</p>`).join('')}</div>${sec.footnote ? `<div class="sec-body"><p class="fn">${esc(sec.footnote)}</p></div>` : ''}`;
+    if (mine) body = `<div class="sec-body editable" contenteditable="true" spellcheck="false" tabindex="0" data-placeholder="${esc(t('draft_line'))}">${sec.paras.map((p) => `<p class="${sec.steps ? 'step' : ''}">${esc(p)}</p>`).join('')}</div>${sec.footnote ? `<div class="sec-body"><p class="fn">${esc(sec.footnote)}</p></div>` : ''}`;
     else {
       if (diff) inner = Diff.lineDiff(diff.base, sec.paras).map((r) => r.t === 'eq' ? para(r.text, sec) : `<p class="${r.t}">${Diff.inlineHtml(r.text, r.pair, r.t, esc)}</p>`).join('');
       else if (hed && draftOf(sec.id)) inner = draftHtml(sec, hed);
-      else inner = sec.paras.map((p, i) => para(p, sec, unread && changedIdx.has(i))).join('');
+      else inner = sec.paras.length ? sec.paras.map((p, i) => para(p, sec, unread && changedIdx.has(i))).join('') : `<p class="draft">${esc(t('draft_line'))}</p>`;
       body = `<div class="sec-body">${inner}${sec.footnote ? `<p class="fn">${esc(sec.footnote)}</p>` : ''}</div>`;
     }
     const who = ch ? (ch.by === 'agent' ? t('agent_name') : (ch.byName || name(ch.by))) : '';
@@ -499,7 +518,6 @@
         </header>
         ${diff ? `<div class="diff-bar">${esc(diff.label)}<span class="spacer"></span><span class="soft">${t('diff_auto')}</span></div>` : ''}
         ${body}
-        ${state.openPop === sec.id && ch ? renderPop(sec.id, ch) : ''}
       </section>`;
   }
   /* Someone else's unsaved edit, with changed lines tinted. */
@@ -522,15 +540,48 @@
     const i = list.findIndex((c) => JSON.stringify(c.prev) === seenKey);
     return i < 0 ? 1 : list.length - i;
   }
+  function renderHistoryPop() {
+    const section = secById(state.openPop);
+    const ch = section && latestChange(section.id);
+    const root = $('#historyRoot');
+    const scroll = root.firstElementChild?.scrollTop || 0;
+    root.innerHTML = ch && state.tab === 'doc' ? renderPop(section.id, ch) : '';
+    if (root.firstElementChild) root.firstElementChild.scrollTop = scroll;
+    positionHistoryPop();
+  }
+
+  function positionHistoryPop() {
+    const pop = $('#historyRoot .pop');
+    if (!pop) return;
+    const anchor = $(`#docPane .sec[data-id="${state.openPop}"] .sec-h`)?.getBoundingClientRect();
+    const pane = $('#leftScroll').getBoundingClientRect();
+    if (!anchor || anchor.bottom <= pane.top || anchor.top >= pane.bottom) { pop.hidden = true; return; }
+    pop.hidden = false;
+    const gap = 8;
+    const above = Math.max(0, anchor.top - pane.top - 2 * gap);
+    const below = Math.max(0, pane.bottom - anchor.bottom - 2 * gap);
+    pop.style.maxWidth = `${pane.width - 2 * gap}px`;
+    pop.style.maxHeight = '';
+    const openUp = pop.offsetHeight > below && above > below;
+    pop.style.maxHeight = `${Math.max(0, openUp ? above : below)}px`;
+    pop.style.top = `${openUp ? anchor.top - gap - pop.offsetHeight : anchor.bottom + gap}px`;
+    pop.style.left = `${Math.max(pane.left + gap, Math.min(anchor.right, pane.right - gap) - pop.offsetWidth)}px`;
+  }
+
   function renderPop(sectionId, ch) {
     const isAgent = ch.by === 'agent', isMe = ch.by === ME();
     const who = ch.byName || name(ch.by);
     const since = state.popMeta ? state.popMeta.since : 1;
-    const earlier = changesOf(sectionId).filter((c) => c.id !== ch.id).reverse();
+    const earlier = changesOf(sectionId).filter((c) => c.id !== ch.id).sort((a, b) => b.at - a.at);
+    const sec = secById(sectionId);
+    const restoreButton = (c, version, label) => {
+      if (JSON.stringify(version === 'before' ? c.prev : c.next) === JSON.stringify(sec.paras)) return '';
+      return `<button class="btn" data-restore="${c.id}" data-version="${version}" data-rev="${sec.rev}" ${state.saving || state.myEdit || openDiscRow(sectionId) ? 'disabled' : ''}>${t(label)}</button>`;
+    };
     const dn = ch.discussionId && (state.discRows.find((d) => d.id === ch.discussionId) || {}).n;
     const label = since > 1 ? t('compare_label_since') : ch.discussionId ? t('compare_label_disc', { n: dn }) : t('compare_label_user', { name: who });
     return `
-      <div class="pop" data-pop-for="${sectionId}">
+      <div class="pop" role="region" aria-label="${esc(t('history'))}" data-pop-for="${sectionId}">
         <div class="pop-h">${avatar(ch.by)}<b>${isAgent ? t('pop_edited_agent') : esc(t(ch.kind === 'human' ? 'pop_edited_direct' : 'pop_edited', { name: who }))}</b><span class="t mono">${fmt(ch.at)}</span></div>
         ${since > 1 ? `<p class="pop-since">${esc(t('pop_since', { n: since }))}</p>` : ''}
         <p class="pop-sum">${esc(ch.summary)}</p>
@@ -542,8 +593,9 @@
           ${ch.discussionId ? `<button class="btn" data-disc="${ch.discussionId}">${t('see_disc')}</button>` : ''}
           ${!isMe && !isAgent ? `<button class="btn agent" data-ask="${sectionId}">${t('ask_different')}</button>` : ''}
           ${!isMe ? likeHtml(ch) : ''}
+          ${restoreButton(ch, 'before', 'restore_previous')}
         </div>
-        ${earlier.length ? `<div class="pop-earlier"><b>${t('pop_earlier')}</b>${earlier.map((c) => `<span class="row">${avatar(c.by, 'sm')}<span>${esc(c.summary)}</span><span class="t mono">${fmt(c.at)}</span></span>`).join('')}</div>` : ''}
+        ${earlier.length ? `<div class="pop-earlier"><b>${t('pop_earlier')}</b>${earlier.map((c) => `<span class="row">${avatar(c.by, 'sm')}<span>${esc(c.summary)}</span><span class="t mono">${fmt(c.at)}</span>${restoreButton(c, 'after', 'restore_version')}</span>`).join('')}${restoreButton(earlier.at(-1), 'before', 'restore_original')}</div>` : ''}
       </div>`;
   }
 
@@ -576,11 +628,22 @@
       if (best) Store.setPresence({ sectionId: best.dataset.id });
     }, 180);
   }
+  function updatePage() {
+    if (state.tab !== 'doc') return;
+    const sc = $('#leftScroll');
+    const pages = $$('#docPane .paper');
+    if (!sc.clientHeight || !pages.length) return;
+    const bounds = sc.getBoundingClientRect();
+    const pageTop = bounds.top + 8;
+    const atEnd = sc.scrollTop > 0 && sc.scrollHeight - sc.clientHeight - sc.scrollTop < 2;
+    const page = atEnd ? pages.length : Math.max(1, pages.findLastIndex((el) => el.getBoundingClientRect().top <= pageTop) + 1);
+    if (page !== state.page) { state.page = page; renderViewer(); }
+  }
+  window.addEventListener('resize', () => { updatePage(); positionHistoryPop(); });
   $('#leftScroll').addEventListener('scroll', () => {
     if (state.tab !== 'doc') return;
-    const sc = $('#leftScroll'); const mid = sc.scrollTop + sc.clientHeight / 2;
-    let page = 1; $$('.paper').forEach((pp, i) => { if (pp.offsetTop * (state.zoom / 100) <= mid) page = i + 1; });
-    if (page !== state.page) { state.page = page; renderViewer(); }
+    updatePage();
+    positionHistoryPop();
     trackMySection();
     dismissSeen((key) => { const el = elOfKey(key); return el && visibleRatio(el) < 0.25; });
   });
@@ -602,121 +665,147 @@
   async function saveMyEdit() {
     const id = state.myEdit; if (!id || state.saving) return;
     const body = $(`.sec[data-id="${id}"] .sec-body.editable`);
-    const paras = Array.from(body.childNodes).map((n) => (n.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const paras = editableParas(body);
     if (!paras.length || JSON.stringify(paras) === JSON.stringify(secById(id).paras)) return cancelMyEdit();
     state.saving = true; renderDoc();
     let r; try { r = await Store.edit(id, paras, state.editRev, { lang }); } catch (e) { r = { error: e.message }; }
     state.saving = false; state.myEdit = null; Store.setPresence({ editing: null, draft: null });
     renderDoc();
-    if (r && r.error) toast(r.error === 'stale' ? t('err_stale') : r.error === 'frozen' ? t('err_frozen') : t('err_generic', { err: r.error }));
+    if (r?.error) editError(r.error);
+    else if (secById(id)?.rev < r.rev) catchUp(Date.now(), id, r.rev);
+  }
+
+  function editError(error) {
+    toast(error === 'stale' ? t('err_stale') : error === 'frozen' ? t('err_frozen') : t('err_generic', { err: error }));
+  }
+
+  async function restoreVersion(button) {
+    const sectionId = state.openPop;
+    const { restore, version, rev } = button.dataset;
+    if (!sectionId || state.saving || state.myEdit || !window.confirm(t('restore_confirm'))) return;
+    state.saving = true;
+    renderHistoryPop();
+    const r = await Store.restore(sectionId, restore, version, Number(rev), { lang });
+    state.saving = false;
+    if (r.error) editError(r.error);
+    else {
+      state.openPop = null;
+      toast(t('restored'));
+      catchUp(Date.now(), sectionId, r.rev);
+    }
+    renderHistoryPop();
   }
 
   /* ---------- home: the workspace library, as in the prototype ---------- */
   const ago = (mins) => mins < 1 ? t('ago_now') : mins < 60 ? t('ago_min', { n: Math.round(mins) }) : mins < 1440 ? t('ago_h', { n: Math.round(mins / 60) }) : t('ago_d', { n: Math.round(mins / 1440) });
-  /* the first page of a spec, as the document renders it, used shrunk as a thumbnail */
-  function pageHtml(title, lede, sections) {
-    return `<article class="paper"><h1>${esc(title)}</h1><p class="lede">${esc(lede)}</p>${sections.map((x, i) => `<section class="sec"><header class="sec-h"><h2><span class="num">${i + 1}</span>${esc(x[0])}</h2></header><div class="sec-body">${x[1].map((pp) => `<p class="${pp ? '' : 'draft'}">${esc(pp || t('draft_line'))}</p>`).join('')}</div></section>`).join('')}<div class="paper-foot mono"><span>${esc(DOC.footer)}</span><span>01</span></div></article>`;
+  function roomPath(id, tab = 'doc') {
+    const suffix = { doc: '', disc: '/discussions', log: '/activity' }[tab];
+    return `/r/${id}${suffix}${location.search}`;
   }
-  function unitPage(u) {
-    if (u.roomId) {
-      const sections = u.roomId === state.roomId ? state.sections.filter((s) => s.page === 1).map((s) => [s.title, s.paras]) : [];
-      return pageHtml(u.title, '', sections);
-    }
-    if (u.live) { const secs = state.sections.length && !importedRoom() ? state.sections : DOC_EN.sections; return pageHtml(DOC_EN.title, DOC_EN.lede, secs.filter((x) => (x.page || 1) === 1).map((x) => [x.title, x.paras])); }
-    return pageHtml(u.title, u.preview.lede, u.preview.sections.map((x) => [x[0], [x[1]]]));
+
+  function readRoute() {
+    const match = /^\/r\/([a-z0-9]{4,12})(?:\/(discussions|activity))?\/?$/i.exec(location.pathname);
+    if (!match) return { id: null, tab: 'doc' };
+    return { id: match[1].toLowerCase(), tab: match[2] === 'discussions' ? 'disc' : match[2] === 'activity' ? 'log' : 'doc' };
   }
-  function face(mid) {
-    if (mid === 'me') return state.me ? avatar(ME(), 'sm') : `<span class="av sm" style="--c:${MEMBERS.me.color}"><img src="${MEMBERS.me.photo}" alt=""></span>`;
-    if (MEMBERS[mid]) return `<span class="av sm" style="--c:${MEMBERS[mid].color}"><img src="${MEMBERS[mid].photo}" alt="${esc(MEMBERS[mid].name)}"></span>`;
-    const x = EXTRA_MEMBERS[mid]; return x ? `<span class="av sm" style="--c:${x.color}">${x.initial}</span>` : avatar(mid, 'sm');
+
+  function loadLegacyRooms() {
+    try {
+      const rooms = JSON.parse(localStorage.getItem('relay.importedRooms') || '[]');
+      return rooms.filter((row) => row && /^[a-z0-9]{4,12}$/.test(row.roomId) && typeof row.title === 'string')
+        .map((row) => ({ id: row.roomId, title: row.title }));
+    } catch { return []; }
   }
+
   function renderHome() {
-    const unread = importedRoom() ? 0 : state.unread.size;
-    const openDisc = importedRoom() ? 0 : state.discRows.filter((d) => d.status === 'open').length;
-    const MAX_AV = 4;
-    const faces = (ids) => ids.slice(0, MAX_AV).map(face).join('') + (ids.length > MAX_AV ? `<span class="av sm more">+${ids.length - MAX_AV}</span>` : '');
-    $('#home').innerHTML = `
-      <div class="home-main">
-        <div class="home-h"><h1>${t('home_title')}</h1><button class="btn primary" data-add-issue>${icon('plus')}${t('add_issue')}</button></div>
-        <div class="units">
-          ${[...state.importedRooms, ...state.units].map((u) => {
-            const mins = u.live && latestChangeTime() ? (Date.now() - latestChangeTime()) / 60000 : u.editedMin;
-            return `<button class="unit ${u.live ? 'live' : ''} ${u.fresh ? 'fresh' : ''}" data-open-unit="${u.id}" style="--accent:${u.accent}">
-              <span class="thumb">${unitPage(u)}</span>
-              <span class="u-title">${u.live && unread ? `<i class="dot" title="${esc(t('unread_n', { n: unread }))}"></i>` : ''}${esc(u.title)}</span>
-              <span class="u-meta"><span class="avs">${faces(u.members)}</span><span>${ago(mins)}</span>${u.live && openDisc ? `<b class="warn">${t('disc_open_n', { n: openDisc })}</b>` : ''}</span>
-            </button>`; }).join('')}
-        </div>
-      </div>`;
+    const shared = state.issues;
+    const known = new Set(shared.map((row) => row.id));
+    const rows = [...shared, ...state.legacyRooms.filter((row) => !known.has(row.id))];
+    $('#home').innerHTML = `<div class="home-main">
+      <div class="home-h"><h1>${t('home_title')}</h1><button class="btn primary" data-add-issue>${icon('plus')}${t('add_issue')}</button></div>
+      ${state.issuesLoading ? `<p role="status">${t(readRoute().id ? 'room_loading' : 'issues_loading')}</p>` : ''}
+      ${state.issuesError ? `<p role="status">${t('issues_error')} <button class="btn" data-reload-issues>${t('retry')}</button></p>` : ''}
+      ${!rows.length && !state.issuesLoading && !state.issuesError ? `<p>${t('issues_empty')}</p>` : ''}
+      <div class="units">${rows.map((row) => {
+        const issue = row.issue;
+        const mins = row.created_at ? Math.max(0, (Date.now() - new Date(row.created_at)) / 60000) : null;
+        return `<a class="unit live" href="${esc(roomPath(row.id))}" style="--accent:var(--blue)">
+          <span class="thumb"><article class="paper"><h1>${esc(row.title)}</h1><p class="lede">${esc(issue?.goal || t('draft_line'))}</p></article></span>
+          <span class="u-title">${esc(row.title)}</span>
+          <span class="u-meta">${issue ? `<span>${esc(issue.byName)}</span>` : ''}${mins == null ? '' : `<span>${ago(mins)}</span>`}</span>
+        </a>`;
+      }).join('')}</div>
+    </div>`;
   }
-  /* add an issue: title, goal, members, starting point → a new card with its first page (prototype behaviour) */
+
+  let issueRefresh = 0;
+  async function refreshIssues() {
+    const request = ++issueRefresh;
+    try {
+      const rows = await Store.issues();
+      if (request !== issueRefresh) return;
+      state.issues = rows;
+      state.issuesError = false;
+    } catch {
+      if (request !== issueRefresh) return;
+      state.issuesError = true;
+    }
+    state.issuesLoading = false;
+    if (state.view === 'home') renderHome();
+  }
+
+  function watchIssues() {
+    Store.watchIssues(refreshIssues);
+    refreshIssues();
+    const refreshVisible = () => { if (!document.hidden) refreshIssues(); };
+    window.addEventListener('online', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    setInterval(refreshVisible, 15000);
+  }
+
   function openIssueModal() {
-    const PEOPLE = ['me', 'minsu', 'jieun', 'hyunwoo'];
-    state.issueDraft = { members: new Set(['me']), start: 'template' };
+    if (!state.me) return openNameModal();
     $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><form class="modal issue" id="issueForm" role="dialog" aria-modal="true" aria-labelledby="iTitle">
       <h2 id="iTitle">${t('issue_new')}</h2>
       <label>${t('issue_title')}<input id="iName" maxlength="80" placeholder="${esc(t('issue_title_ph'))}" autocomplete="off"></label>
       <label>${t('issue_goal')}<input id="iGoal" maxlength="140" placeholder="${esc(t('issue_goal_ph'))}" autocomplete="off"></label>
-      <div class="lbl-row">${t('issue_members')}</div>
-      <div class="member-pick">${PEOPLE.map((id) => `<button type="button" class="pick ${id === 'me' ? 'on' : ''}" data-pick="${id}" aria-pressed="${id === 'me'}">${face(id).replace('av sm', 'av')}<span>${esc(id === 'me' ? (state.me ? state.me.name : MEMBERS.me.name) : MEMBERS[id].name)}</span></button>`).join('')}</div>
       <div class="lbl-row">${t('issue_start')}</div>
       <div class="start-pick"><label class="radio"><input type="radio" name="start" value="template" checked>${t('start_template')}</label><label class="radio"><input type="radio" name="start" value="blank">${t('start_blank')}</label><label class="radio"><input type="radio" name="start" value="import">${t('start_import')}</label></div>
-      <label id="importFileLabel" hidden>${t('import_file')}<input id="iFile" type="file" accept=".md,.txt,text/markdown,text/plain"></label>
-      <div class="f"><span class="err" id="iErr"></span><span class="spacer"></span><button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button><button type="submit" class="btn primary">${t('create')}</button></div>
+      <label id="importFileLabel" hidden>${t('import_file')}<input id="iFile" type="file" accept=".md,.txt,.docx,.pdf"></label>
+      <p class="sub">${t('issue_shared')}</p>
+      <div class="f"><span class="err" id="iErr" role="alert"></span><span class="spacer"></span><button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button><button type="submit" class="btn primary">${t('create')}</button></div>
     </form></div>`;
-    setTimeout(() => $('#iName') && $('#iName').focus(), 30);
-  }
-  async function createIssue() {
-    const title = $('#iName').value.trim();
-    if (!title) { $('#iErr').textContent = t('err_issue_title'); $('#iName').focus(); return; }
-    const start = $('#issueForm input[name="start"]:checked').value;
-    if (start === 'import') return importIssue(title);
-    const goal = $('#iGoal').value.trim();
-    const accents = ['#2F6BFF', '#7C5CFF', '#16A26A', '#D4860A', '#D9503B', '#0EA5A4'];
-    const unit = { id: `u${Date.now()}`, title, members: [...state.issueDraft.members], editedMin: 0, fresh: true, accent: accents[state.units.length % accents.length],
-      preview: { lede: goal || t('draft_line'), sections: start === 'template' ? t('tpl_sections').map((x) => [x, '']) : [] } };
-    state.units = [unit, ...state.units]; state.issueDraft = null;
-    closeModal(); renderHome(); toast(t('toast_created'));
-    setTimeout(() => { unit.fresh = false; }, 2000);
+    $('#iName').focus();
   }
 
-  async function importIssue(title) {
+  async function createIssue() {
     const form = $('#issueForm');
-    const file = $('#iFile').files[0];
-    if (!file || !/\.(md|txt)$/i.test(file.name)) { $('#iErr').textContent = t('import_invalid'); return; }
-    if (file.size > 120000) { $('#iErr').textContent = t('import_large'); return; }
     const submit = form.querySelector('[type="submit"]');
     if (submit.disabled) return;
+    const err = $('#iErr');
+    const title = $('#iName').value.trim();
+    if (!title) { err.textContent = t('err_issue_title'); $('#iName').focus(); return; }
+    const start = form.elements.start.value;
+    const goal = $('#iGoal').value.trim();
+    const file = $('#iFile').files[0];
+    err.textContent = '';
     submit.disabled = true;
-    state.landing.busy = true;
     try {
-      const rid = await Store.createRoom({ title, text: await file.text(), markdown: /\.md$/i.test(file.name) });
-      location.assign(`/r/${rid}${location.search}`);
+      let source = {};
+      if (start === 'import') {
+        const { readDocument } = await import('./import.js');
+        source = await readDocument(file);
+      }
+      const id = await Store.createRoom({ title, goal, start, lang, ...source });
+      location.assign(roomPath(id));
     } catch (e) {
-      $('#iErr').textContent = e.message === 'document_too_large' ? t('import_large') : e.message === 'invalid_document' ? t('import_invalid') : t('err_generic', { err: e.message });
+      const key = { document_too_large: 'import_large', document_too_many_sections: 'import_many_sections', invalid_document: 'import_invalid', import_file_large: 'import_file_large',
+        import_pdf_pages: 'import_pdf_pages', import_pdf_no_text: 'import_pdf_no_text', import_pdf_locked: 'import_pdf_locked', import_unavailable: 'import_unavailable' }[e.message];
+      err.textContent = key ? t(key) : t('err_generic', { err: e.message });
       submit.disabled = false;
-      state.landing.busy = false;
     }
   }
 
-  function loadImportedRooms() {
-    try {
-      const rooms = JSON.parse(localStorage.getItem('relay.importedRooms') || '[]');
-      return Array.isArray(rooms) ? rooms : [];
-    } catch (e) { return []; }
-  }
-  function rememberImportedRoom() {
-    const roomId = state.roomId;
-    const unit = { id: roomId, roomId, title: state.room.title, editedMin: 0, accent: '#2F6BFF', members: ['me'] };
-    state.importedRooms = [unit, ...state.importedRooms.filter((u) => u.roomId !== roomId)];
-    try { localStorage.setItem('relay.importedRooms', JSON.stringify(state.importedRooms)); } catch (e) { /* private mode */ }
-  }
-
-  /* ---------- who you are: a nickname, unique across Relay, asked once and kept on this browser ---------- */
-  const roomFromPath = () => { const m = location.pathname.match(/^\/r\/([a-z0-9]{4,12})\/?$/i); return m ? m[1].toLowerCase() : null; };
-  function loadMe() { try { const v = JSON.parse(localStorage.getItem('relay.me') || 'null'); return v && /^u_[a-z0-9]{6,20}$/.test(v.userId) && v.name ? v : null; } catch (e) { return null; } }
-  function saveMe(v) { try { localStorage.setItem('relay.me', JSON.stringify({ userId: v.userId, name: v.name, avatar: v.avatar })); } catch (e) { /* private mode */ } }
-  function forgetMe() { try { localStorage.removeItem('relay.me'); } catch (e) { /* fine */ } state.me = null; }
   function closeModal() { $('#modalRoot').innerHTML = ''; }
   function openNameModal(err = '') {
     const L = state.landing;
@@ -737,44 +826,28 @@
     L.busy = false;
     if (!r || !r.ok) return openNameModal(r && r.error === 'taken' ? t('nick_taken') : r && r.error === 'length' ? t('nick_len') : t('err_generic', { err: (r && r.error) || '?' }));
     setMe(r); closeModal();
-    const rid = roomFromPath(); if (rid) joinRoom(rid); else renderHome();
+    const route = readRoute(); if (route.id) joinRoom(route); else { renderHome(); watchIssues(); }
   }
-  function setMe(p) { state.me = { userId: p.userId, name: p.name, avatar: p.avatar }; saveMe(state.me); learn(p.userId, p.name, p.avatar); }
-  /* the live card at "/" makes a fresh room; inside a room it just opens the document */
-  async function startRoom() {
+  function setMe(p) { state.me = { userId: p.userId, name: p.name, avatar: p.avatar }; learn(p.userId, p.name, p.avatar); }
+  async function joinRoom(route) {
     if (!state.me) return openNameModal();
-    if (state.creating) return; state.creating = true; toast(t('land_busy_start'));
-    try { const rid = await Store.createRoom(); history.pushState(null, '', `/r/${rid}${location.search}`); await enterRoom(rid); }
-    catch (e) { toast(t('err_generic', { err: e.message })); }
-    state.creating = false;
-  }
-  async function joinRoom(rid) {
-    if (!state.me) return openNameModal();
-    try { await enterRoom(rid); }
+    try { await enterRoom(route); }
     catch (e) {
-      if (e.message === 'room_not_found') { history.replaceState(null, '', `/${location.search}`); showView('home'); toast(t('land_err_room')); }
-      else toast(t('err_generic', { err: e.message }));
+      if (e.message === 'room_not_found') {
+        history.replaceState(null, '', `/${location.search}`);
+        showView('home'); watchIssues(); toast(t('land_err_room'));
+      } else {
+        $('#home').innerHTML = `<div class="home-main"><p role="alert">${esc(t('err_generic', { err: e.message }))}</p><button class="btn" data-retry-room>${t('retry')}</button></div>`;
+      }
     }
   }
-  /* the walkthrough modal (prototype); not opened automatically */
-  function openGuide() {
-    $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><div class="modal" role="dialog" aria-modal="true" aria-labelledby="gTitle">
-      <h2 id="gTitle">${t('guide_h')}</h2><p class="sub">${t('guide_sub')}</p>
-      <div class="g-steps">${t('guide_steps_live').map((x, i) => `<div class="g-step"><span class="n">${i + 1}</span><div><b>${x[0]}</b><p>${x[1]}</p></div></div>`).join('')}</div>
-      <div class="f"><button class="btn ghost" data-reset>${t('guide_reset')}</button><span class="spacer"></span><button class="btn primary" data-modal-close>${t('guide_start')}</button></div>
-    </div></div>`;
-    setTimeout(() => $('[data-modal-close]') && $('[data-modal-close]').focus(), 30);
-  }
-
 
   /* ---------- joining a room and live updates ---------- */
-  async function enterRoom(rid, me = state.me) {
-    const data = await Store.join(rid, me);   // nicknames are already unique across Relay (api/profile)
-    state.me = me; saveMe(me); learn(me.userId, me.name, me.avatar);
-    state.roomId = rid; state.viewing = ME();
+  async function enterRoom({ id, tab }) {
+    const data = await Store.join(id, state.me);
+    state.roomId = id; state.viewing = ME();
     applySnapshot(data, true);
-    if (importedRoom()) rememberImportedRoom();
-    showView('doc');
+    showView('doc', tab);
   }
   /* load a full snapshot: on join, and again after a dropped connection (sections that changed meanwhile are marked as new) */
   function applySnapshot(data, initial) {
@@ -789,6 +862,7 @@
     state.messages.forEach((m) => learn(m.userId, m.userName, m.meta && m.meta.avatar));
     state.changeList.forEach((c) => learn(c.by, c.byName));
     state.votes.forEach((v) => learn(v.user_id, v.user_name));
+    state.discRows.forEach((d) => learn(d.opened_by_id, d.opened_by_name));
     state.presence.forEach((p) => learn(p.userId, p.name, p.avatar));
     if (initial) {
       state.sections.forEach((s) => {
@@ -816,7 +890,9 @@
   Store.on('status', (st) => { document.body.classList.toggle('offline', st === 'offline'); if (st === 'offline') toast(t('offline')); });
   Store.on('sections', ({ row }) => {
     if (!row || row.room_id !== state.roomId) return;
-    const next = normSection(row); const old = secById(next.id); const prev = old ? clone(old.paras) : [];
+    const next = normSection(row); const old = secById(next.id);
+    if (old && old.rev >= next.rev) return;
+    const prev = old ? clone(old.paras) : [];
     upsert(state.sections, next); state.sections.sort((a, b) => a.num - b.num);
     if (!old || JSON.stringify(prev) === JSON.stringify(next.paras)) return renderDoc();
     const c = changeById(next.lastChangeId);
@@ -830,6 +906,7 @@
     if (m.userId === ME() && m.role === 'agent' && m.meta.compose && state.view === 'doc') setTimeout(() => P.composeDiscussion(m.meta.compose.sectionId || 'none', m.meta.compose), 400); if (m.userId === state.viewing) renderChat(); renderLog(); renderTabs(); });
   Store.on('discussions', ({ row }) => {
     if (!row || row.room_id !== state.roomId) return;
+    learn(row.opened_by_id, row.opened_by_name);
     const added = upsert(state.discRows, row);
     if (added && row.status === 'open') announceDiscussion(row);
     state.discRows.sort((a, b) => a.n - b.n);
@@ -863,7 +940,7 @@
   setInterval(() => { if (state.view === 'doc') renderAgent(); }, 5000);   // a stuck lock (crashed function) times out visually
 
   /* ---------- views ---------- */
-  function showView(v) {
+  function showView(v, tab = 'doc') {
     state.view = v;
     $('#home').hidden = v !== 'home'; $('.main').hidden = v !== 'doc';
     $$('.work-only').forEach((el) => { el.hidden = v !== 'doc'; });
@@ -871,7 +948,7 @@
     document.body.classList.toggle('on-home', v === 'home');
     if (v === 'home') { Store.setPresence({ sectionId: null }); return renderHome(); }
     Store.setPresence({ private: state.myPrivate });
-    renderPresence(); renderChatHead(); renderComposer(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
+    renderPresence(); renderChatHead(); renderComposer(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); renderExport(); setTab(tab, false); renderAgent(); renderDoc();
     setTimeout(trackMySection, 600);
   }
   let toastTimer;
@@ -888,27 +965,19 @@
 
   /* ---------- events (delegated) ---------- */
   document.addEventListener('click', (e) => {
-    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-copy-link],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],[data-page],[data-zoom],[data-lock],[data-open-unit],[data-add-issue],[data-pick],[data-modal-close],[data-overlay],[data-reset],[data-like],[data-open-disc],[data-compose-cancel],.chip,.tab');
+    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-copy-link],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],[data-page],[data-zoom],[data-lock],[data-add-issue],[data-reload-issues],[data-retry-room],[data-restore],[data-modal-close],[data-overlay],[data-like],[data-open-disc],[data-compose-cancel],.chip,.tab');
     if (!t0) { if (state.exportOpen) { state.exportOpen = false; renderViewer(); } if (!e.target.closest('.pop') && state.openPop) { state.openPop = null; renderDoc(); } return; }
     const d = t0.dataset;
     if (d.lang) return setLang(d.lang);
     if (t0.classList.contains('tab')) { const tab = t0.id.replace('tab', '').toLowerCase(); setTab(tab); if (tab === 'disc') P.renderDisc(); return; }
     if (t0.classList.contains('chip')) return send(t0.textContent);
-    if (t0.hasAttribute('data-modal-close')) { if (!$('#landForm')) closeModal(); return; }
-    if (t0.hasAttribute('data-overlay')) { if (e.target === t0 && !$('#landForm')) closeModal(); return; }
-    if (t0.hasAttribute('data-reset')) { closeModal(); history.pushState(null, '', `/${location.search}`); state.roomId = null; return startRoom(); }
+    if (t0.hasAttribute('data-modal-close')) { if (!$('#issueForm [type=submit]:disabled')) closeModal(); return; }
+    if (t0.hasAttribute('data-overlay')) { if (e.target === t0 && !$('#issueForm [type=submit]:disabled')) closeModal(); return; }
     if (t0.hasAttribute('data-add-issue')) return openIssueModal();
-    if (d.pick) { const set = state.issueDraft.members; if (d.pick !== 'me') { if (set.has(d.pick)) set.delete(d.pick); else set.add(d.pick); } t0.classList.toggle('on', set.has(d.pick)); t0.setAttribute('aria-pressed', set.has(d.pick)); return; }
-    if (d.openUnit) {
-      const imported = state.importedRooms.find((u) => u.id === d.openUnit);
-      if (imported) return imported.roomId === state.roomId ? showView('doc') : location.assign(`/r/${imported.roomId}${location.search}`);
-      const unit = state.units.find((u) => u.id === d.openUnit);
-      if (unit?.live) return state.roomId && !importedRoom() ? showView('doc') : startRoom();
-      return toast(t('toast_only_first'));
-    }
-    if (t0.hasAttribute('data-home')) return showView('home');
+    if (t0.hasAttribute('data-reload-issues')) return refreshIssues();
+    if (t0.hasAttribute('data-retry-room')) { renderHome(); return joinRoom(readRoute()); }
     if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; Store.setPresence({ private: state.myPrivate }); renderPresence(); renderComposer(); return; }
-    if (d.page) { state.page = Math.min(2, Math.max(1, state.page + Number(d.page))); renderViewer(); return gotoPage(state.page); }
+    if (d.page) return gotoPage(Math.min(state.pageCount, Math.max(1, state.page + Number(d.page))));
     if (d.zoom) { state.zoom = Math.min(130, Math.max(80, state.zoom + Number(d.zoom))); return renderDoc(); }
     if (t0.hasAttribute('data-bot')) return bringTeammate();
     if (t0.hasAttribute('data-copy-link')) return copyRoomLink();
@@ -926,6 +995,7 @@
       if (state.unread.has(d.pop)) { state.unread.delete(d.pop); state.lastSeen[d.pop] = clone(secById(d.pop).paras); }
       renderTabs(); return renderDoc();
     }
+    if (d.restore) return restoreVersion(t0);
     if (d.diff) { state.openPop = null; const bc = changeById(d.base); const base = d.base === 'seen' ? state.popMeta && state.popMeta.base : bc && bc.prev; state.showDiff[d.diff] = { label: d.label, base: base || latestChange(d.diff).prev }; return renderDoc(); }
     if (d.ask) { state.openPop = null; renderDoc(); if (state.viewing !== ME()) viewSession(ME()); state.ctx = d.ask; renderCtx(); $('#input').focus(); return; }
     if (t0.hasAttribute('data-export-menu')) { state.exportOpen = !state.exportOpen; return renderViewer(); }
@@ -943,7 +1013,8 @@
   });
   document.addEventListener('click', () => { if (state.view === 'doc') dismissSeen(); });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && $('#modalRoot').firstChild && !$('#landForm')) return closeModal();
+    if (e.key === 'Escape' && $('#issueForm [type=submit]:enabled')) return closeModal();
+    if (e.key === 'Escape' && state.openPop) { state.openPop = null; renderDoc(); return; }
     if (state.myEdit && e.key === 'Escape') return cancelMyEdit();
     if (state.myEdit && (e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); return saveMyEdit(); }
     if (state.view === 'doc' && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key.length === 1 || e.key === 'Enter')) dismissSeen();
@@ -960,7 +1031,6 @@
     if (e.target.name === 'start') {
       const importing = e.target.value === 'import';
       $('#importFileLabel').hidden = !importing;
-      $$('#issueForm [data-template-field]').forEach((field) => { field.hidden = importing; });
     }
     if (e.target.id === 'iFile' && e.target.files[0] && !$('#iName').value.trim()) $('#iName').value = e.target.files[0].name.replace(/\.[^.]+$/, '').slice(0, 80);
     if (e.target.id === 'modelPick') { state.model = e.target.value; try { localStorage.setItem('relay.model', state.model); } catch (err) { /* private mode */ } }
@@ -974,12 +1044,16 @@
     e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
     Store.setPresence({ typing: true }); clearTimeout(typingTimer); typingTimer = setTimeout(() => Store.setPresence({ typing: false }), 2500);
   });
-  window.addEventListener('popstate', () => location.reload());
+  window.addEventListener('popstate', () => {
+    const route = readRoute();
+    if (route.id && route.id === state.roomId) setTab(route.tab, false);
+  });
 
   /* ---------- boot ---------- */
   document.documentElement.lang = lang;
   document.title = lang === 'ko' ? 'Relay 팀 에이전트' : 'Relay team agent';
   $$('[data-lang]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.lang === lang));
+  $('[data-home]').href = '/' + location.search;
   $('#langSeg').title = t('lang_title');
   $('[data-copy-link]').textContent = t('copy_link');
   $('#tabDoc').firstChild.textContent = t('tab_doc') + ' '; $('#tabDisc').firstChild.textContent = t('tab_disc') + ' '; $('#tabLog').firstChild.textContent = t('tab_log') + ' ';
@@ -987,18 +1061,16 @@
   setAgent('idle', t('agent_idle'));
   loadModels();
   (async () => {
-    try { ['relay.private'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
-    const rid = roomFromPath();
+    const route = readRoute();
     showView('home');
-    if (!Store.configured()) return toast(t('land_err_conf'));
-    const saved = loadMe();
-    if (!saved) { forgetMe(); return openNameModal(); }
-    /* the nickname lives on the server; a browser that remembers someone unknown (or renamed) is corrected here */
-    let r; try { r = await Store.profile({ userId: saved.userId }); } catch (e) { r = { error: e.message }; }
-    if (r && r.ok) setMe(r);
-    else if (r && r.error === 'not_found') { forgetMe(); return openNameModal(); }
-    else setMe(saved);   // network trouble: keep going with what we have
-    renderHome();
-    if (rid) joinRoom(rid);
+    if (!Store.configured()) { state.issuesLoading = false; state.issuesError = true; renderHome(); return toast(t('land_err_conf')); }
+    const r = await Store.profile();
+    if (!r.ok) {
+      let oldProfile = false;
+      try { oldProfile = !!localStorage.getItem('relay.me'); } catch { /* storage may be blocked */ }
+      return openNameModal(r.error === 'session_required' ? (oldProfile ? t('nick_upgrade') : '') : t('err_generic', { err: r.error }));
+    }
+    setMe(r);
+    if (route.id) joinRoom(route); else watchIssues();
   })();
 })();

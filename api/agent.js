@@ -1,5 +1,4 @@
-/* POST /api/agent { roomId, userId, userName, text, lang } → { ok } | { queued } | { error } */
-import { handler } from './_lib.js';
+import { withProfile } from './_session.js';
 import { runAgent } from './_agent.js';
 
-export default handler((body) => runAgent(body));
+export default withProfile(runAgent);

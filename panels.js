@@ -43,6 +43,7 @@ window.RelayPanels = (R) => {
     const myVote = (d.options.find((o) => o.votes.includes(ME())) || {}).id;
     const conclusion = d.conclusion || (top > 0 && !isTie ? sorted[0].id : '');
     const busy = state.resolving === d.id;
+    const isOpener = d.openedBy === ME();
     const canResolve = voted.size >= 1 && conclusion && !busy;
     const target = d.sectionId ? secLabel(d.sectionId) : secLabel('s8');
     const appliedChange = d.applied && changeById(d.applied.changeId);
@@ -67,9 +68,11 @@ window.RelayPanels = (R) => {
           ${d.status === 'open'
             ? `<span class="agentline">${avatar('agent', '', 'waiting')}<span class="dot"></span>${esc(d.sectionId ? t('agent_watching', { sec: secLabel(d.sectionId) }) : t('agent_watching_none'))}</span><span class="spacer"></span>
                <span class="mono">${t('voted_count', { a: voted.size, b: total })}</span>
-               ${isTie ? `<span class="tie">${esc(t('tie', { opts: tied.map((o) => o.id).join('·') }))}</span>` : ''}
-               <select data-conclusion="${d.id}" aria-label="${esc(t('pick_conclusion'))}"><option value="">${isTie ? t('tie_pick') : t('pick_conclusion')}</option>${d.options.map((o) => `<option value="${o.id}" ${conclusion === o.id ? 'selected' : ''}>${esc(optName(o))}</option>`).join('')}</select>
-               <button class="btn primary ${voted.size >= 3 && top >= 2 && !isTie ? 'ready' : ''}" data-resolve="${d.id}" ${canResolve ? '' : 'disabled'}>${busy ? t('resolving') : t('resolve')}</button>`
+               ${isOpener ? `
+                 ${isTie ? `<span class="tie">${esc(t('tie', { opts: tied.map((o) => o.id).join('·') }))}</span>` : ''}
+                 <select data-conclusion="${d.id}" aria-label="${esc(t('pick_conclusion'))}"><option value="">${isTie ? t('tie_pick') : t('pick_conclusion')}</option>${d.options.map((o) => `<option value="${o.id}" ${conclusion === o.id ? 'selected' : ''}>${esc(optName(o))}</option>`).join('')}</select>
+                 <button class="btn primary ${voted.size >= 3 && top >= 2 && !isTie ? 'ready' : ''}" data-resolve="${d.id}" ${canResolve ? '' : 'disabled'}>${busy ? t('resolving') : t('resolve')}</button>`
+                 : `<span class="hint">${t('discussion_owner_only')}</span>`}`
             : `${avatar('agent')}<span><b>${esc(t('concluded_as', { id: d.result }))}</b> · ${d.applied ? `${esc(t('applied_to', { sec: target }))} <span class="mono">${fmt(d.applied.at)}</span>` : t('applying')}</span>${appliedChange ? likeHtml(appliedChange) : ''}`}
         </div>
         ${d.status === 'resolved' ? `<div class="disc-result">
@@ -111,7 +114,8 @@ window.RelayPanels = (R) => {
     state.draftDisc = null;
     renderDoc(); renderDisc(); renderTabs();
     localSay(sectionId ? t('msg.disc_opened_sec', { sec: secRef(sectionId), n: r.n }) : t('msg.disc_opened_none', { n: r.n, title: esc(title), sec: secRef('s8') }));
-    setTimeout(() => gotoDiscussion(r.id), 300);
+    gotoDiscussion(r.id);
+    setTimeout(() => { if (!state.discRows.some((row) => row.id === r.id)) window.dispatchEvent(new Event('online')); }, 1500);
   }
   async function comment(discId, text) {
     state.commentRows.push({ id: `local_${Date.now()}`, discussion_id: discId, room_id: state.roomId, user_id: ME(), user_name: Store.me().name, text, created_at: new Date().toISOString() });
@@ -131,15 +135,15 @@ window.RelayPanels = (R) => {
   }
   async function resolveDiscussion(discId) {
     const d = discussions().find((x) => x.id === discId);
-    if (!d || d.status !== 'open' || state.resolving) return;
+    if (!d || d.status !== 'open' || d.openedBy !== ME() || state.resolving) return;
     const sorted = [...d.options].sort((a, b) => b.votes.length - a.votes.length);
     const isTie = sorted.length > 1 && sorted[0].votes.length === sorted[1].votes.length;
     if (isTie && !d.conclusion) return toast(t('err_tie'));
     state.resolving = discId; renderDisc();
     let r; try { r = await Store.resolve(discId, d.conclusion || null, { lang }); } catch (e) { r = { error: e.message }; }
     state.resolving = null; renderDisc();
-    if (!r.error) setTimeout(() => { if (Store.lastEventAt() < Date.now() - 2000) Store.snapshot().then(() => window.dispatchEvent(new Event('online'))); }, 1500);
-    if (r && r.error) toast(r.error === 'tie' ? t('err_tie') : t('err_generic', { err: r.error }));
+    if (!r?.error) setTimeout(() => { if (state.discRows.find((row) => row.id === discId)?.status === 'open') window.dispatchEvent(new Event('online')); }, 1500);
+    if (r && r.error) toast(r.error === 'tie' ? t('err_tie') : r.error === 'discussion_owner_only' ? t('discussion_owner_only') : t('err_generic', { err: r.error }));
   }
 
   /* ---------- activity log: built from changes, discussions, sessions and reactions, newest first ---------- */
