@@ -84,14 +84,14 @@ window.Store = (() => {
   window.addEventListener('online', () => { if (roomId) emit('resync', 'online'); });
 
   /* my message → messages, then /api/agent; while another request holds the agent, retry every 2 s */
-  async function say(text, { lang = 'en', onQueued } = {}) {
+  async function say(text, { lang = 'en', model, onQueued } = {}) {
     need();
     const body = String(text).trim().slice(0, 500);
     if (!body) return { error: 'empty' };
     const ins = await sb.from('messages').insert({ room_id: roomId, user_id: me.userId, user_name: me.name, role: 'user', text: body, meta: { avatar: me.avatar } });
     if (ins.error) return { error: ins.error.message };
     for (let i = 0; i < 45; i++) {
-      const res = await api('agent', { roomId, userId: me.userId, userName: me.name, text: body, lang });
+      const res = await api('agent', { roomId, userId: me.userId, userName: me.name, text: body, lang, model });
       if (!res.queued) { if (onQueued) onQueued(false); return res; }
       if (onQueued) onQueued(true);
       await wait(2000);

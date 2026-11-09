@@ -55,6 +55,7 @@
     openPop: null, popMeta: null, openEntry: null, openDiffs: new Set(), logCat: 'all', logMember: 'all',
     ctx: null, pending: false, queued: false, resolving: null, botBusy: false, conclusion: {}, collapsed: false, localMsgs: [],
     animating: 0, docDirty: false, agentStatus: 'idle', myEdit: null, saving: false,
+    models: [], model: (() => { try { return localStorage.getItem('relay.model') || ''; } catch (e) { return ''; } })(),
   };
   const ME = () => state.me && state.me.userId;
 
@@ -110,7 +111,7 @@
     state.showDiff[sid] = null;
     if (by !== ME()) state.unread.add(sid); else { state.unread.delete(sid); state.lastSeen[sid] = clone(secById(sid).paras); }
     state.recent[sid] = true;
-    setTimeout(() => { delete state.recent[sid]; renderDoc(); }, RECENT_MS);
+    setTimeout(() => { delete state.recent[sid]; patchSection(sid); }, RECENT_MS);
   }
   async function typeIn(sectionId, prev, color = null) {
     const sec = secById(sectionId);
@@ -167,7 +168,7 @@
       setTimeout(() => { closing.delete(key); const [id, d] = key.split(':'); if (d) state.showDiff[id] = null; markRead(id); }, 700);
     });
   }
-  function markRead(id) { const s = secById(id); if (!s) return; state.unread.delete(id); state.lastSeen[id] = clone(s.paras); renderDoc(); renderTabs(); }
+  function markRead(id) { const s = secById(id); if (!s) return; state.unread.delete(id); state.lastSeen[id] = clone(s.paras); patchSection(id); renderTabs(); }
   function flashSection(id) { const el = $(`.sec[data-id="${id}"]`); if (!el) return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
   function gotoSection(id, { diff = null } = {}) {
     if (diff) state.showDiff[id] = diff;
@@ -229,10 +230,21 @@
 
   /* ---------- the right pane: my session or someone else's (read-only) ---------- */
   function viewSession(id) { state.viewing = id; renderPresence(); renderChatHead(); renderGuide(); renderChat(); renderComposer(); }
+  const currentModel = () => state.models.find((m) => m.id === state.model) || state.models.find((m) => m.id === state.defaultModel) || state.models[0] || null;
+  function modelPicker() {
+    if (state.models.length < 1) return '';
+    const cur = currentModel();
+    return `<label class="model-pick" title="${esc(t('model_title'))}"><span>${t('model_label')}</span><select id="modelPick">${state.models.map((m) => `<option value="${esc(m.id)}" ${cur && cur.id === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>`;
+  }
+  async function loadModels() {
+    try { const r = await fetch('/api/models', { cache: 'no-store' }); const j = await r.json(); state.models = j.models || []; state.defaultModel = j.default; }
+    catch (e) { state.models = []; }
+    if (state.view === 'doc') renderChatHead();
+  }
   function renderChatHead() {
     const id = state.viewing; const mine = id === ME();
     $('#chatHead').innerHTML = `${avatar(id)}<div class="ttl"><h2>${esc(t('my_session', { name: name(id) }))}</h2></div>
-      <span class="head-acts">${mine ? '' : `<button class="btn ghost" data-user="${ME()}">${t('back_to_mine')}</button>`}<button class="iconbtn sm" data-collapse title="${t('collapse')}">${icon('panel')}</button></span>`;
+      <span class="head-acts">${mine ? modelPicker() : `<button class="btn ghost" data-user="${ME()}">${t('back_to_mine')}</button>`}<button class="iconbtn sm" data-collapse title="${t('collapse')}">${icon('panel')}</button></span>`;
   }
   function renderComposer() {
     const mine = state.viewing === ME();
@@ -256,7 +268,9 @@
     const meta = m.meta || {};
     let h = `<p>${esc(m.text)}</p>`;
     const c = meta.change_id && changeById(meta.change_id);
-    if (meta.applied && meta.action === 'edit') h += `<p class="meta"><span class="done"><i></i>${t('msg.applied_meta')}</span> · ${secRef(meta.applied)}</p>${c ? diffMini(c) : ''}`;
+    const via = meta.model && meta.model.label ? ` · <span class="via">${esc(meta.model.label)}</span>` : '';
+    if (meta.applied && meta.action === 'edit') h += `<p class="meta"><span class="done"><i></i>${t('msg.applied_meta')}</span> · ${secRef(meta.applied)}${via}</p>${c ? diffMini(c) : ''}`;
+    else if (via) h += `<p class="meta">${via.slice(3)}</p>`;
     if (meta.action === 'resolve' && c) h += `<div class="acts"><button class="btn" data-goto-diff="${c.sectionId}:${c.id}:${esc(t('compare_label_disc', { n: (state.discRows.find((d) => d.id === meta.discussion_id) || {}).n }))}">${t('msg.see_changes')}</button><button class="btn ghost" data-goto="s8">${t('msg.see_decision')}</button></div>`;
     if (meta.conflict) {
       const cf = meta.conflict;
@@ -316,7 +330,7 @@
     state.pending = true; state.ctx = null; renderCtx(); renderComposer(); renderChat(); renderGuide();
     Store.setPresence({ typing: false });
     let res;
-    try { res = await Store.say(body.slice(0, 500), { lang, onQueued: (q) => { state.queued = q; renderAgent(); renderChat(); } }); }
+    try { res = await Store.say(body.slice(0, 500), { lang, model: (currentModel() || {}).id, onQueued: (q) => { state.queued = q; renderAgent(); renderChat(); } }); }
     catch (e) { res = { error: e.message }; }
     state.pending = false; state.queued = false;
     renderComposer(); renderAgent(); renderChat(); renderGuide();
@@ -389,6 +403,15 @@
     if (!last) return;
     const r = document.createRange(); r.setStart(node || last, node ? left : last.length); r.collapse(true);
     const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
+  /* re-render one section in place (keeps scroll, avoids repainting the whole document) */
+  function patchSection(id) {
+    if (state.view !== 'doc') return;
+    const el = $(`.sec[data-id="${id}"]`); const sec = secById(id);
+    if (!el || !sec || state.animating || state.myEdit === id) return renderDoc();
+    const tmp = document.createElement('div'); tmp.innerHTML = renderSection(sec).trim();
+    el.replaceWith(tmp.firstElementChild);
+    renderCursors(true);
   }
   function renderSection(sec) {
     const ch = latestChange(sec.id);
@@ -464,6 +487,7 @@
         ${since > 1 ? `<p class="pop-since">${esc(t('pop_since', { n: since }))}</p>` : ''}
         <p class="pop-sum">${esc(ch.summary)}</p>
         ${ch.why ? `<p class="pop-why"><b>${t('pop_why')}:</b> ${esc(ch.why)}</p>` : ''}
+        ${(() => { const m = state.messages.find((x) => x.id === ch.messageId); return m && m.meta.model ? `<p class="pop-why"><b>${t('model_label')}:</b> ${esc(m.meta.model.label)}</p>` : ''; })()}
         <div class="pop-actions">
           <button class="btn" data-diff="${sectionId}" data-base="${since > 1 ? 'seen' : ch.id}" data-label="${esc(label)}">${t('compare')}</button>
           ${ch.kind === 'agent' ? `<button class="btn" data-session="ch:${ch.id}">${isMe ? t('see_my_convo') : t('see_convo')}</button>` : ''}
@@ -490,12 +514,17 @@
     const s = document.createElement('span'); s.className = `cursor ${editing ? 'typing' : ''}`; s.style.setProperty('--c', member(mid).color); s.contentEditable = 'false';
     s.innerHTML = `<i></i><b>${esc(name(mid))}${editing ? icon('pencil') : ''}</b>`; return s;
   }
-  function renderCursors() {
+  let cursorKey = '';
+  function renderCursors(force = false) {
     if (state.view !== 'doc' || state.tab !== 'doc') return;
-    $$('.cursor').forEach((el) => el.remove());
-    $$('.sec-body p').forEach((p) => p.normalize());
     const bySec = {};
     Object.entries(cursors()).forEach(([mid, sid]) => { (bySec[sid] ||= []).push(mid); });
+    const editingKey = state.presence.filter((p) => p.editing).map((p) => p.userId).join();
+    const key = JSON.stringify([bySec, editingKey, state.myEdit]);
+    const expected = Object.entries(bySec).reduce((n, [sid, l]) => n + (state.myEdit === sid ? 0 : l.length), 0);
+    if (!force && key === cursorKey && $$('.cursor').length === expected) return;   // nothing moved: leave the DOM alone
+    cursorKey = key;
+    $$('.cursor').forEach((el) => { const p = el.parentNode; el.remove(); if (p) p.normalize(); });
     Object.entries(bySec).forEach(([sid, list]) => {
       const el = $(`.sec[data-id="${sid}"]`); if (!el || state.myEdit === sid) return;
       const ps = $$('.sec-body > p:not(.fn)', el);
@@ -647,7 +676,10 @@
     const edits = (l) => JSON.stringify(l.filter((p) => p.userId !== ME()).map((p) => `${p.userId}:${p.editing || ''}`).sort());   // my own editing state is already local
     const drafts = (l) => Object.fromEntries(l.filter((p) => p.editing && p.userId !== ME()).map((p) => [p.editing, JSON.stringify(p.draft || null)]));
     const e0 = edits(state.presence), d0 = drafts(state.presence);
-    state.presence = list; list.forEach((p) => learn(p.userId, p.name, p.avatar)); renderPresence();
+    const who = (l) => JSON.stringify(l.map((p) => `${p.userId}:${p.name}:${p.avatar}:${p.sectionId || ''}`).sort());
+    const w0 = who(state.presence);
+    state.presence = list; list.forEach((p) => learn(p.userId, p.name, p.avatar));
+    if (w0 !== who(list)) renderPresence();
     if (e0 !== edits(list)) return renderDoc();
     const d1 = drafts(list);
     Object.keys(d1).forEach((sid) => { if (d1[sid] !== d0[sid]) patchDraft(sid); });
@@ -729,6 +761,7 @@
     if (f.id === 'landForm') { e.preventDefault(); submitLanding(); }
   });
   document.addEventListener('change', (e) => {
+    if (e.target.id === 'modelPick') { state.model = e.target.value; try { localStorage.setItem('relay.model', state.model); } catch (err) { /* private mode */ } }
     if (e.target.id === 'logCat') { state.logCat = e.target.value; renderLog(); }
     if (e.target.id === 'logMember') { state.logMember = e.target.value; renderLog(); }
     if (e.target.dataset.conclusion) { state.conclusion[e.target.dataset.conclusion] = e.target.value; P.renderDisc(); }
@@ -749,6 +782,7 @@
   $('#tabDoc').firstChild.textContent = t('tab_doc') + ' '; $('#tabDisc').firstChild.textContent = t('tab_disc') + ' '; $('#tabLog').firstChild.textContent = t('tab_log') + ' ';
   $('.send').setAttribute('aria-label', t('send'));
   setAgent('idle', t('agent_idle'));
+  loadModels();
   (async () => {
     const rid = roomFromPath(); const saved = loadMe();
     if (rid && saved && Store.configured()) {

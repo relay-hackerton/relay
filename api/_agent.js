@@ -2,6 +2,7 @@
 import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, hasHangul, L, LIMIT, MAX_TEXT } from './_lib.js';
 import { RESPOND_TOOL, DRAFT_TOOL, systemPrompt, draftPrompt, toTurns, callClaude as realClaude } from './_prompt.js';
 import { BOTS } from './_seed.js';
+import { pickModel } from './_models.js';
 
 const RECENT_MS = 30 * 60000;
 const DEADLINE_MS = 52000;
@@ -68,10 +69,10 @@ async function sayAgent(d, { roomId, userId, userName }, text, meta, id = uuid()
 async function askClaude(deps, ctx, input, started) {
   const system = systemPrompt({ ...ctx, userName: input.userName, lang: input.lang });
   const messages = toTurns(ctx.history, input.text);
-  let out = await deps.callClaude({ system, messages, tool: RESPOND_TOOL });
+  let out = await deps.callClaude({ system, messages, tool: RESPOND_TOOL, model: input.model });
   let err = validate(out, ctx.sections);
   if (err && Date.now() - started < 30000) {
-    out = await deps.callClaude({ system: `${system}\n\nYOUR PREVIOUS ANSWER WAS REJECTED: ${err}. Answer again following the rules.`, messages, tool: RESPOND_TOOL, timeoutMs: Math.max(8000, DEADLINE_MS - (Date.now() - started) - 6000) });
+    out = await deps.callClaude({ system: `${system}\n\nYOUR PREVIOUS ANSWER WAS REJECTED: ${err}. Answer again following the rules.`, messages, tool: RESPOND_TOOL, model: input.model, timeoutMs: Math.max(8000, DEADLINE_MS - (Date.now() - started) - 6000) });
     err = validate(out, ctx.sections);
   }
   if (err) return { action: 'clarify', reply: L(input.lang, "Sorry, I couldn't work out a clean edit for that. Could you say which section and what should change?", '죄송해요, 깔끔하게 고칠 방법을 못 찾았어요. 어느 섹션을 어떻게 바꿀지 조금 더 알려 주실래요?'), invalid: err };
@@ -96,6 +97,8 @@ export async function runAgent(input, deps = {}) {
   const userName = String(input.userName || 'Guest').slice(0, 40);
   const lang = input.lang === 'ko' ? 'ko' : 'en';
   const who = { roomId, userId, userName };
+  const model = pickModel(input.model) || (deps.callClaude ? { id: 'test', label: 'test', provider: 'test' } : null);
+  const modelTag = model ? { id: model.id, label: model.label } : null;
   if (!roomId || !userId || !text) return { status: 400, body: { error: 'roomId, userId and text are required' } };
   if (String(text).length > MAX_TEXT) return { status: 400, body: { error: `text over ${MAX_TEXT} characters` } };
 
@@ -109,10 +112,10 @@ export async function runAgent(input, deps = {}) {
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       const ctx = await loadContext(d, roomId, userId);
-      const out = await askClaude(dz, ctx, { ...input, userName, lang }, started);
+      const out = await askClaude(dz, ctx, { ...input, userName, lang, model }, started);
       const sec = out.action === 'edit' && ctx.sections.find((s) => s.id === out.sectionId);
       if (!sec || sameList(sec.paras, out.paras)) {
-        await sayAgent(d, who, out.reply.trim(), { action: out.action === 'edit' ? 'none' : out.action, ...(out.invalid ? { invalid: out.invalid } : {}) });
+        await sayAgent(d, who, out.reply.trim(), { action: out.action === 'edit' ? 'none' : out.action, model: modelTag, ...(out.invalid ? { invalid: out.invalid } : {}) });
         return { ok: true, action: out.action };
       }
       const frozen = ctx.openDiscs.find((x) => x.section_id === sec.id);
@@ -141,7 +144,7 @@ export async function runAgent(input, deps = {}) {
           try {
             const draft = await dz.callClaude({
               system: draftPrompt({ sections: ctx.sections, theirs: contested.change, mine: { summary, why }, contested: { theirs: contested.theirs || (contested.change.next || []).join(' / '), mine: contested.mine || out.paras[contested.paraIndex] }, userName, lang }),
-              messages: [{ role: 'user', content: 'Draft the discussion.' }], tool: DRAFT_TOOL, timeoutMs: Math.max(6000, DEADLINE_MS - (Date.now() - started) - 4000),
+              messages: [{ role: 'user', content: 'Draft the discussion.' }], tool: DRAFT_TOOL, model, timeoutMs: Math.max(6000, DEADLINE_MS - (Date.now() - started) - 4000),
             });
             if (draft && draft.discussion && Array.isArray(draft.discussion.options) && draft.discussion.options.length === 3 && !draft.discussion.options.some((o) => hasHangul(o.text))) { discussion = draft.discussion; note = note || draft.note; }
           } catch (e) { console.error('draft failed', e); }
@@ -159,7 +162,7 @@ export async function runAgent(input, deps = {}) {
           conflict.discussion_id = disc.id; conflict.discussion_n = n;
         }
       }
-      await sayAgent(d, who, out.reply.trim(), { action: 'edit', applied: sec.id, change_id: changeId, ...(conflict ? { conflict } : {}) }, messageId);
+      await sayAgent(d, who, out.reply.trim(), { action: 'edit', applied: sec.id, change_id: changeId, model: modelTag, ...(conflict ? { conflict } : {}) }, messageId);
       return { ok: true, action: 'edit', changeId, conflict: !!conflict };
     }
     return { ok: false, error: 'gave up' };

@@ -1,9 +1,10 @@
 /* Prompt, tool schemas and the Anthropic Messages API call for the team agent. English prompt; reply language follows `lang`. */
 import { hhmm } from './_lib.js';
+import { pickModel } from './_models.js';
 
-/* provider: LLM_PROVIDER=anthropic|openai, or whichever key is set (Anthropic first) */
-export const PROVIDER = () => (process.env.LLM_PROVIDER || (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'anthropic')).toLowerCase();
-export const MODEL = () => (PROVIDER() === 'openai' ? process.env.OPENAI_MODEL || 'gpt-6-luna' : process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5');
+/* the model used when a request does not pick one (see _models.js) */
+export const PROVIDER = () => (pickModel() || { provider: 'none' }).provider;
+export const MODEL = () => (pickModel() || { id: 'none' }).id;
 
 const str = (description) => ({ type: 'string', description });
 const nstr = (description) => ({ type: ['string', 'null'], description });
@@ -126,10 +127,12 @@ export function toTurns(history, text) {
 /* The model call the pipeline uses. Name kept as callClaude so callers do not change; it routes to the configured provider. */
 export async function callClaude(args) {
   if (globalThis.__RELAY_FAKE_CLAUDE) return globalThis.__RELAY_FAKE_CLAUDE(args);   // MOCK dev server only
-  const call = PROVIDER() === 'openai' ? callOpenAI : callAnthropic;
+  const model = args.model && args.model.provider ? args.model : pickModel(args.model);
+  if (!model) throw new Error('no model configured: set OPENAI_API_KEY or ANTHROPIC_API_KEY');
+  const call = model.provider === 'openai' ? callOpenAI : callAnthropic;
   const started = Date.now(); const budget = args.timeoutMs || 40000;
   for (let attempt = 0; ; attempt++) {
-    try { return await call({ ...args, timeoutMs: Math.max(5000, budget - (Date.now() - started)) }); }
+    try { return await call({ ...args, model: model.id, timeoutMs: Math.max(5000, budget - (Date.now() - started)) }); }
     catch (e) {
       /* rate limited or overloaded: wait what the provider asks (max 8 s) and try again while the budget allows */
       const m = /\b(429|529|503)\b/.test(e.message) && String(e.message).match(/try again in ([\d.]+)\s*(ms|s)/i);
@@ -141,7 +144,7 @@ export async function callClaude(args) {
 }
 
 /* OpenAI Responses API with one forced function call (GPT-6 models need Responses for tool calling) */
-async function callOpenAI({ system, messages, tool, timeoutMs = 40000, maxTokens = 2500 }) {
+async function callOpenAI({ system, messages, tool, model, timeoutMs = 40000, maxTokens = 2500 }) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error('OPENAI_API_KEY missing');
   const ctrl = new AbortController();
@@ -151,7 +154,7 @@ async function callOpenAI({ system, messages, tool, timeoutMs = 40000, maxTokens
       method: 'POST', signal: ctrl.signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: MODEL(), instructions: system, max_output_tokens: maxTokens,
+        model, instructions: system, max_output_tokens: maxTokens,
         input: messages.map((m) => ({ role: m.role, content: m.content })),
         tools: [{ type: 'function', name: tool.name, description: tool.description, parameters: tool.input_schema }],
         tool_choice: { type: 'function', name: tool.name },
@@ -169,7 +172,7 @@ async function callOpenAI({ system, messages, tool, timeoutMs = 40000, maxTokens
   } finally { clearTimeout(timer); }
 }
 
-async function callAnthropic({ system, messages, tool, timeoutMs = 40000, maxTokens = 2500 }) {
+async function callAnthropic({ system, messages, tool, model, timeoutMs = 40000, maxTokens = 2500 }) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY missing');
   const ctrl = new AbortController();
@@ -178,7 +181,7 @@ async function callAnthropic({ system, messages, tool, timeoutMs = 40000, maxTok
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: ctrl.signal,
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL(), max_tokens: maxTokens, system, messages, tools: [tool], tool_choice: { type: 'tool', name: tool.name } }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages, tools: [tool], tool_choice: { type: 'tool', name: tool.name } }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(`anthropic ${r.status}: ${(j && j.error && j.error.message) || 'error'}`);

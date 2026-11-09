@@ -767,3 +767,14 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
   .export { display: none; }
   .tabs .seg .tab { padding: 0 10px; }
 }
+
+/* ---------- performance: no animated blur behind the working screen, scrollers on their own layer ---------- */
+body:not(.on-home) .orb { animation: none; }
+@media (prefers-reduced-motion: reduce) { .orb { animation: none; } }
+.pane-scroll, .msgs { will-change: scroll-position; overscroll-behavior: contain; }
+.paper { contain: layout style; }
+
+/* model picker in my session header */
+.model-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); margin-right: 4px; }
+.model-pick select { font: inherit; font-size: 12px; font-weight: 600; color: var(--ink); height: 28px; padding: 0 8px; border-radius: var(--r-pill); border: 1px solid var(--line); background: #fff; max-width: 150px; }
+.msg .meta .via { color: var(--ink-3); }

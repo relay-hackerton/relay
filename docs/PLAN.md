@@ -305,6 +305,12 @@ POST /api/bot     { roomId, lang }                            → { ok: true }  
 - OpenAI는 Responses API(`/v1/responses`)에 함수 하나를 강제 호출한다(`tool_choice`). GPT-6 계열은 Chat Completions에서 도구 호출이 제한돼서다. 기본 모델 `gpt-6-luna`, `OPENAI_REASONING=low`.
 - 프롬프트, 도구 스키마, 검증은 두 제공자가 같이 쓴다.
 
+**모델 선택 (11/9 추가)**
+
+- `api/_models.js`가 키가 있는 제공자의 모델만 목록으로 만든다. 기본 목록: Claude Sonnet 5.5·Haiku 5.5, GPT-6 Luna·Astra, Codex(GPT-5.3). `OPENAI_MODELS`/`ANTHROPIC_MODELS`/`DEFAULT_MODEL`로 바꾼다.
+- `GET /api/models` → `{ models, default }`. 내 세션 머리글의 Model 선택이 요청마다 `model`을 보낸다(브라우저에 기억). 서버는 목록에 없는 값이면 기본 모델을 쓴다.
+- 답한 모델은 `messages.meta.model`에 남고, 채팅의 "반영됨" 줄과 이름표 팝업에 보인다. 봇과 결론 반영은 기본 모델을 쓴다(결론 반영은 모델을 부르지 않는다).
+
 **직접 수정 (11/9 추가)**
 
 - `POST /api/edit { roomId, userId, userName, sectionId, paras, rev, lang }` → `{ ok, changeId }`. 시작할 때의 `rev`와 다르면 409 `stale`, 열린 토론이 있는 섹션이면 409 `frozen`. 에이전트 잠금은 쓰지 않고 rev로만 덮어쓰기를 막는다.

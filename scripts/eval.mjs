@@ -28,8 +28,9 @@ const CASES = [
 ];
 
 let calls = 0, ms = 0;
-const timed = async (args) => { const t = Date.now(); calls++; try { return await callClaude(args); } finally { ms += Date.now() - t; } };
-console.log(`provider ${PROVIDER()} · model ${MODEL()}\n`);
+const timed = async (args) => { const t = Date.now(); calls++; try { return await callClaude({ ...args, model: ONLY }); } finally { ms += Date.now() - t; } };
+const ONLY = process.env.EVAL_MODEL || MODEL();
+console.log(`provider ${PROVIDER()} · model ${ONLY}\n`);
 const rows = [];
 for (const c of CASES) {
   if (rows.length) await new Promise((r) => setTimeout(r, Number(process.env.EVAL_GAP_MS || 7000)));   // stay under low RPM limits

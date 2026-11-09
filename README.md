@@ -19,7 +19,7 @@
 | | |
 | --- | --- |
 | Shared document | Supabase Postgres, synced live to everyone in the room (Realtime) |
-| The agent | An LLM with one forced function call for a fixed JSON shape (OpenAI `gpt-6-luna` via the Responses API, or Claude via the Messages API), one request at a time per room, others queue |
+| The agent | Pick the model per request: Claude (Sonnet, Haiku) or OpenAI (GPT-6 Luna/Astra, Codex). One forced function call gives a fixed JSON shape; one request at a time per room, others queue |
 | Who changed what and why | Every change stores author, reason, before/after and the session it came from; Activity shows GitHub-style diffs |
 | Conflicts | Detected when an edit rewrites a paragraph someone else changed in the last 30 minutes; the agent drafts a 3-option discussion |
 | Presence | Who is online and which section they are reading or editing |
