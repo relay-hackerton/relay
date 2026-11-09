@@ -328,7 +328,7 @@ MVP가 끝난 뒤 시간이 남으면 넣는다. 서버 없이 브라우저에�
 | HTML `.html` | 스타일을 안에 넣은 단일 파일 | 2 |
 | PDF | 인쇄용 CSS + `window.print()` (브라우저의 PDF 저장) | 3 |
 | JSON `.json` | 섹션과 변경 기록(누가·왜·이전·이후) 전체 | 4 |
-| Word `.docx` | CDN 라이브러리로 생성. 가장 마지막 | 5 |
+| Word `.docx` | 누를 때만 CDN에서 docx 라이브러리를 불러와 생성 (구현됨) | 5 |
 
 - 파일: `export.js` (C 담당), `window.RelayExport.download(format, { title, lede, sections, changes, discussions })`
 - 화면: 문서 탭 오른쪽에 "Export" 메뉴 하나. 새 API나 테이블은 만들지 않는다.

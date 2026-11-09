@@ -216,7 +216,7 @@ window.RelayI18N = (() => {
     sess_empty: 'No messages in this session yet.', ask_prefix: 'About {sec}: ', opened_by_agent: 'opened by the agent',
     disc_empty_live: 'When two people’s edits disagree, the agent opens a discussion here and waits for the team to decide.',
     offline: 'Connection lost · reconnecting…', model_label: 'Model', model_title: 'Which model the agent uses for your requests',
-    export_btn: 'Export', export_md: 'Markdown (.md)', export_html: 'Web page (.html)', export_pdf: 'PDF (print)', export_json: 'JSON with change history (.json)', export_blocked: 'Allow pop-ups to print to PDF',
+    export_btn: 'Export', export_md: 'Markdown (.md)', export_html: 'Web page (.html)', export_pdf: 'PDF (print)', export_docx: 'Word (.docx)', export_json: 'JSON with change history (.json)', export_blocked: 'Allow pop-ups to print to PDF',
     err_stale: 'Someone changed this section while you were editing, so your edit was not saved. Try again on the latest version.', err_frozen: 'This section has an open discussion. Conclude it first.',
   });
   Object.assign(EN.msg, {
@@ -250,7 +250,7 @@ window.RelayI18N = (() => {
     sess_empty: '아직 이 세션에 메시지가 없어요.', ask_prefix: '{sec}에 대해: ', opened_by_agent: '에이전트가 열음',
     disc_empty_live: '두 사람의 수정이 엇갈리면 에이전트가 여기에 토론을 열고 팀의 결론을 기다려요.',
     offline: '연결이 끊겼어요 · 다시 연결하는 중…', model_label: '모델', model_title: '내 요청에 에이전트가 쓸 모델',
-    export_btn: '내보내기', export_md: 'Markdown (.md)', export_html: '웹 페이지 (.html)', export_pdf: 'PDF (인쇄)', export_json: '변경 기록 포함 JSON (.json)', export_blocked: 'PDF로 인쇄하려면 팝업을 허용해 주세요',
+    export_btn: '내보내기', export_md: 'Markdown (.md)', export_html: '웹 페이지 (.html)', export_pdf: 'PDF (인쇄)', export_docx: 'Word (.docx)', export_json: '변경 기록 포함 JSON (.json)', export_blocked: 'PDF로 인쇄하려면 팝업을 허용해 주세요',
     err_stale: '수정하는 동안 다른 사람이 이 섹션을 바꿔서 저장하지 않았어요. 최신 내용에서 다시 고쳐 주세요.', err_frozen: '이 섹션은 토론이 진행 중이에요. 결론을 먼저 내 주세요.',
   });
   Object.assign(KO.msg, {

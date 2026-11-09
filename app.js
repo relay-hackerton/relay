@@ -362,8 +362,11 @@
   }
   function doExport(format) {
     state.exportOpen = false; renderExport();
-    const ok = window.RelayExport.download(format, { roomId: state.roomId, title: (state.room && state.room.title) || DOC.title, lede: DOC.lede, sections: state.sections, changes: state.changeList, discussions: state.discRows });
+    let ok;
+    try { ok = window.RelayExport.download(format, { roomId: state.roomId, title: (state.room && state.room.title) || DOC.title, lede: DOC.lede, sections: state.sections, changes: state.changeList, discussions: state.discRows }); }
+    catch (e) { return toast(t('err_generic', { err: e.message })); }
     if (ok === false) toast(t('export_blocked'));
+    if (ok && typeof ok.then === 'function') ok.catch((e) => toast(t('err_generic', { err: e.message })));
   }
   function renderDocMeta() { $('#tabsHint').innerHTML = `<span class="mono">${esc(DOC.version)}</span> · ${t('last_applied')} <span class="mono">${fmt(latestChangeTime())}</span>`; }
   function renderTabs() {
