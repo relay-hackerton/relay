@@ -58,6 +58,7 @@ export async function runResolve(input, deps = {}) {
       if (pick.text || drafted) {
         main = await writeSection(d, roomId, disc.section_id, (sec) => {
           if (drafted) { const ch = sec.paras.filter((p) => !drafted.includes(p)); before = ch.join('\n') || null; after = drafted.filter((p) => !sec.paras.includes(p)).join('\n') || drafted.join('\n'); return drafted; }
+          if (!sec.paras.length) { after = pick.text; return [pick.text]; }
           const idx = Math.min(Math.max(0, disc.para_index ?? 0), sec.paras.length - 1);
           before = sec.paras[idx]; after = pick.text;
           return sec.paras.map((p, i) => (i === idx ? pick.text : p));
@@ -81,12 +82,10 @@ export async function runResolve(input, deps = {}) {
     await d.update('discussions', `id=${d.eq(disc.id)}`, { status: 'resolved', result: pick.id, resolved_at: at.toISOString(), resolved_by_id: userId, resolved_by_name: userName,
       applied: { before: main ? before : null, after: main ? after : record, change_id: changeId, log_change_id: log.changeId, at: at.toISOString() } });
     const secName = main ? secLabel(main.sec) : null;
-    const logName = secLabel(log.sec);
-    const logNameKo = `${log.sec.num}. 결정 기록`;
     await d.insert('messages', [{ id: uuid(), room_id: roomId, user_id: userId, user_name: userName, role: 'agent',
       text: main
-        ? L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}), so I changed ${secName} and recorded it in ${logName}.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 ${secName}을 바꾸고 ${logNameKo}에 남겼어요.`)
-        : L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}). I recorded it in ${logName}.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 ${logNameKo}에 남겼어요.`),
+        ? L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}), so I updated ${secName}.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 ${secName}을 수정했어요.`)
+        : L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}).`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 났어요.`),
       meta: { action: 'resolve', applied: main ? disc.section_id : 's8', change_id: changeId, log_change_id: log.changeId, discussion_id: disc.id } }]);
     return { ok: true, result: pick.id };
   } finally {

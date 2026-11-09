@@ -1,6 +1,6 @@
 /* Panels: discussions (compose, votes, comments, conclusion through /api/resolve) and the activity log (changes · discussions · sessions · reactions, with GitHub-style diffs). Same markup as the prototype. */
 window.RelayPanels = (R) => {
-  const { state, $, esc, fmt, t, icon, avatar, name, member, secLabel, secRef, openDiscOf, changeById, discussions, participants, sessionOf, renderDoc, renderTabs, gotoDiscussion, toast, Diff, ME, Store, lang, likeHtml, localSay } = R;
+  const { state, documentSections, $, esc, fmt, t, icon, avatar, name, member, secLabel, secRef, openDiscOf, changeById, discussions, participants, sessionOf, renderDoc, renderTabs, gotoDiscussion, toast, Diff, ME, Store, lang, likeHtml, localSay } = R;
   const optName = (o) => `${t('opt_fmt', { id: o.id })} ${o.label}`;
 
   /* ---------- discussions ---------- */
@@ -23,7 +23,7 @@ window.RelayPanels = (R) => {
   function renderCompose(d) {
     return `
       <form class="compose" id="compose">
-        <div class="h"><label class="inline">${t('section_label')}<select id="dSection"><option value="">${t('target_none')}</option>${state.sections.map((x) => `<option value="${x.id}" ${d.sectionId === x.id ? 'selected' : ''}>${esc(secLabel(x.id))}</option>`).join('')}</select></label></div>
+        <div class="h"><label class="inline">${t('section_label')}<select id="dSection"><option value="">${t('target_none')}</option>${documentSections().map((x) => `<option value="${x.id}" ${d.sectionId === x.id ? 'selected' : ''}>${esc(secLabel(x.id))}</option>`).join('')}</select></label></div>
         <label>${t('topic')}<input id="dTitle" maxlength="80" value="${esc(d.title)}" placeholder="${esc(t('topic_ph'))}"></label>
         <label>${t('question')}<textarea id="dQuestion" maxlength="400" placeholder="${esc(t('question_ph'))}">${esc(d.question)}</textarea></label>
         <div class="lbl-row">${t('options')} <span class="hint">${t('options_hint')}</span></div>
@@ -43,39 +43,33 @@ window.RelayPanels = (R) => {
     const conclusion = d.conclusion || (top > 0 && !isTie ? sorted[0].id : '');
     const busy = state.resolving === d.id;
     const canResolve = voted.size >= 1 && conclusion && !busy;
-    const target = d.sectionId ? secLabel(d.sectionId) : secLabel('s8');
     const appliedChange = d.applied && changeById(d.applied.changeId);
+    const bodyChanged = appliedChange && appliedChange.sectionId !== 's8';
     const opener = d.openedBy === 'agent' ? t('opened_by_agent') : t('opened_by', { name: name(d.openedBy) });
     return `
       <div class="disc ${d.status}" data-id="${d.id}">
         <div class="disc-h"><span class="disc-tag">${t('disc_n', { n: d.n })} · ${d.status === 'open' ? t('status_open') : t('status_done')}</span><strong>${esc(d.title)}</strong>${d.sectionId ? `<span class="sec-ref" data-goto="${d.sectionId}">${esc(secLabel(d.sectionId))}</span>` : ''}<span class="who">${avatar(d.openedBy, 'sm')} ${esc(opener)} · <span class="mono">${fmt(d.at)}</span></span></div>
         <p class="disc-q">${esc(d.question)}</p>
         <ul class="opts">${d.options.map((o) => `
-          <li class="opt ${winner === o.id ? 'winner' : ''}" style="--w:${(o.votes.length / total) * 100}%">
+          <li class="opt ${winner === o.id ? 'winner' : ''}" ${d.status === 'open' ? `data-vote-row="${d.id}:${o.id}"` : ''} style="--w:${(o.votes.length / total) * 100}%">
             <span class="bar" aria-hidden="true"></span>
             <span class="key">${o.id}</span>
             <span class="lab">${esc(o.label)}${o.desc ? `<span class="desc">${esc(o.desc)}</span>` : ''}</span>
             <span class="voters"><span class="avs">${o.votes.map((v) => avatar(v)).join('')}</span>
-              ${d.status === 'open' ? `<button class="btn vote" data-vote="${d.id}:${o.id}" aria-pressed="${myVote === o.id}">${myVote === o.id ? t('voted') : t('vote')}</button>` : `<span class="mono">${t('votes_n', { n: o.votes.length })}</span>`}
+              ${d.status === 'open' ? `<button class="btn vote" data-vote="${d.id}:${o.id}" aria-pressed="${myVote === o.id}" aria-label="${esc(t('vote_for', { label: o.label }))}">${myVote === o.id ? t('voted') : t('vote')}</button>` : `<span class="mono">${winner === o.id ? `${t('chosen')} · ` : ''}${t('votes_n', { n: o.votes.length })}</span>`}
             </span>
           </li>`).join('')}
         </ul>
         ${d.comments.length ? `<ul class="cmts">${d.comments.map((c) => `<li class="cmt">${avatar(c.by)}<span><b>${esc(name(c.by))}</b>${esc(c.text)}<span class="t mono">${fmt(c.at)}</span></span></li>`).join('')}</ul>` : ''}
         ${d.status === 'open' ? `<form class="cmt-form" data-cmt="${d.id}"><input id="cmt-${d.id}" maxlength="400" placeholder="${esc(t('comment_ph'))}" aria-label="${esc(t('comment_ph'))}"><button class="btn" type="submit">${t('post')}</button></form>` : ''}
-        <div class="disc-f">
-          ${d.status === 'open'
-            ? `<span class="agentline">${avatar('agent', '', 'waiting')}<span class="dot"></span>${esc(d.sectionId ? t('agent_watching', { sec: secLabel(d.sectionId) }) : t('agent_watching_none'))}</span><span class="spacer"></span>
-               <span class="mono">${t('voted_count', { a: voted.size, b: total })}</span>
-               ${isTie ? `<span class="tie">${esc(t('tie', { opts: tied.map((o) => o.id).join('·') }))}</span>` : ''}
-               <select data-conclusion="${d.id}" aria-label="${esc(t('pick_conclusion'))}"><option value="">${isTie ? t('tie_pick') : t('pick_conclusion')}</option>${d.options.map((o) => `<option value="${o.id}" ${conclusion === o.id ? 'selected' : ''}>${esc(optName(o))}</option>`).join('')}</select>
-               <button class="btn primary ${voted.size >= 3 && top >= 2 && !isTie ? 'ready' : ''}" data-resolve="${d.id}" ${canResolve ? '' : 'disabled'}>${busy ? t('resolving') : t('resolve')}</button>`
-            : `${avatar('agent')}<span><b>${esc(t('concluded_as', { id: d.result }))}</b> · ${d.applied ? `${esc(t('applied_to', { sec: target }))} <span class="mono">${fmt(d.applied.at)}</span>` : t('applying')}</span>${appliedChange ? likeHtml(appliedChange) : ''}`}
-        </div>
-        ${d.status === 'resolved' ? `<div class="disc-result">
-            ${d.applied ? `<div class="h">${t('result_h')}<span class="spacer"></span><button class="btn" data-goto-diff="${d.sectionId || 's8'}:${d.applied.changeId}:${esc(t('compare_label_disc', { n: d.n }))}">${t('see_in_doc')}</button></div>
-              ${d.applied.before ? `<p class="del">${esc(d.applied.before)}</p>` : ''}<p class="add">${esc(d.applied.after)}</p>`
-            : `<span class="pending">${avatar('agent', 'sm', 'working')} ${esc(t('result_pending', { sec: target }))}</span>`}
-          </div>` : ''}
+        ${d.status === 'open' ? `<div class="disc-f">
+          <span class="mono">${t('voted_count', { a: voted.size, b: total })}</span><span class="spacer"></span>
+          ${isTie ? `<span class="tie">${esc(t('tie', { opts: tied.map((o) => o.id).join('·') }))}</span>` : ''}
+          <select data-conclusion="${d.id}" aria-label="${esc(t('pick_conclusion'))}"><option value="">${isTie ? t('tie_pick') : t('pick_conclusion')}</option>${d.options.map((o) => `<option value="${o.id}" ${conclusion === o.id ? 'selected' : ''}>${esc(optName(o))}</option>`).join('')}</select>
+          <button class="btn primary ${voted.size >= 3 && top >= 2 && !isTie ? 'ready' : ''}" data-resolve="${d.id}" ${canResolve ? '' : 'disabled'}>${busy ? t('resolving') : t('resolve')}</button>
+        </div>` : bodyChanged ? `<div class="disc-f">
+          <button class="btn ghost" data-goto-diff="${appliedChange.sectionId}:${appliedChange.id}:${esc(t('compare_label_disc', { n: d.n }))}">${t('see_in_doc')}</button>${likeHtml(appliedChange)}
+        </div>` : ''}
       </div>`;
   }
   /* open the compose form, optionally prefilled by the agent's draft */
@@ -109,7 +103,7 @@ window.RelayPanels = (R) => {
     if (r.error) { renderDisc(); const e = $('#dErr'); if (e) e.textContent = r.error === 'exists' ? t('err_exists', { sec: secLabel(sectionId) }) : t('err_generic', { err: r.error }); return; }
     state.draftDisc = null;
     renderDoc(); renderDisc(); renderTabs();
-    localSay(sectionId ? t('msg.disc_opened_sec', { sec: secRef(sectionId), n: r.n }) : t('msg.disc_opened_none', { n: r.n, title: esc(title), sec: secRef('s8') }));
+    localSay(sectionId ? t('msg.disc_opened_sec', { sec: secRef(sectionId), n: r.n }) : t('msg.disc_opened_none', { n: r.n, title: esc(title) }));
     setTimeout(() => gotoDiscussion(r.id), 300);
   }
   async function comment(discId, text) {
@@ -156,7 +150,7 @@ window.RelayPanels = (R) => {
       if (d.status === 'resolved') {
         const opt = d.options.find((o) => o.id === d.result) || {};
         out.push({ kind: 'disc', at: new Date(row.resolved_at || d.at), by: row.resolved_by_id || 'agent', discussionId: d.id, sectionId: d.sectionId, text: t('log_disc_done', { n: d.n, id: d.result, label: opt.label || '' }) });
-        if (d.applied) out.push({ kind: 'apply', at: new Date(d.applied.at.getTime() + 1), by: 'agent', discussionId: d.id, sectionId: d.sectionId || 's8', changeId: d.applied.changeId, text: d.sectionId ? t('log_apply_sec', { n: d.n, sec: secLabel(d.sectionId) }) : t('log_apply_none', { n: d.n }) });
+        if (d.applied && changeById(d.applied.changeId)?.sectionId !== 's8' && d.sectionId) out.push({ kind: 'apply', at: new Date(d.applied.at.getTime() + 1), by: 'agent', discussionId: d.id, sectionId: d.sectionId || 's8', changeId: d.applied.changeId, text: d.sectionId ? t('log_apply_sec', { n: d.n, sec: secLabel(d.sectionId) }) : t('log_apply_none', { n: d.n }) });
       }
     });
     return out.sort((a, b) => b.at - a.at);

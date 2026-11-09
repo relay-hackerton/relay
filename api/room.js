@@ -1,7 +1,7 @@
 /* POST /api/room { document? | shared? } → { roomId }.
    { shared: true } → the one onboarding room everybody opens from the library: created once with a random id
    like any other room (rooms.kind = 'shared', unique), then everyone gets that same link.
-   An empty request starts a fresh copy of the demo; { document } imports a file. */
+   An empty request starts a legacy demo; { document } creates a blank, template, or imported document. */
 import { db, handler, newId, shortId, uuid } from './_lib.js';
 import { DOC_TITLE, SECTIONS, HISTORY } from './_seed.js';
 
@@ -28,11 +28,20 @@ function importSections({ text, markdown }) {
     else lines.push(line);
   }
   finish();
-  if (sections.length) {
-    const decisionLog = SECTIONS.find((s) => s.id === 's8');
-    sections.push({ ...decisionLog, num: sections.length + 1 });
-  }
-  return sections;
+  return sections.length ? withDecisionLog(sections) : sections;
+}
+
+function withDecisionLog(sections) {
+  const decisionLog = SECTIONS.find((s) => s.id === 's8');
+  return [...sections, { ...decisionLog, num: sections.length + 1 }];
+}
+
+function draftSections(start, goal) {
+  const titles = start === 'template' ? SECTIONS.slice(0, 4).map((section) => section.title) : ['Document'];
+  const goalIndex = start === 'template' ? 1 : 0;
+  return withDecisionLog(titles.map((title, i) => ({
+    id: `import-${i + 1}`, num: i + 1, title, paras: goal && i === goalIndex ? [goal] : [],
+  })));
 }
 
 function insertSections(d, roomId, sections, last = {}) {
@@ -55,13 +64,13 @@ export async function sharedRoom(d = db) {
 
 export async function createRoom(d = db, document = undefined, kind = 'copy') {
   const roomId = shortId(6);
-  if (document) {
-    await d.insert('rooms', [{ id: roomId, title: document.title, kind: 'import' }]);
+  if (document || kind === 'shared') {
+    await d.insert('rooms', [{ id: roomId, title: document?.title || DOC_TITLE, kind: document ? 'import' : kind }]);
     try {
-      await insertSections(d, roomId, document.sections);
+      await insertSections(d, roomId, document?.sections || SECTIONS);
     } catch (error) {
       try { await d.delete('rooms', `id=${d.eq(roomId)}`); }
-      catch (cleanupError) { console.error('import cleanup failed', cleanupError); }
+      catch (cleanupError) { console.error('room cleanup failed', cleanupError); }
       throw error;
     }
     return roomId;
@@ -92,8 +101,14 @@ export default handler(async ({ document, shared }) => {
   if (document === undefined) return { roomId: await createRoom() };
   const invalid = { status: 400, body: { error: 'invalid_document' } };
   const title = typeof document?.title === 'string' ? document.title.trim() : '';
-  const text = typeof document?.text === 'string' ? document.text.trim() : '';
-  if (!title || title.length > 80 || title.includes('\0') || !text || text.includes('\0')) return invalid;
+  if (!title || title.length > 80 || title.includes('\0')) return invalid;
+  if (document.start === 'blank' || document.start === 'template') {
+    const goal = typeof document.goal === 'string' ? document.goal.trim() : '';
+    if (goal.length > 140 || goal.includes('\0')) return invalid;
+    return { roomId: await createRoom(db, { title, sections: draftSections(document.start, goal) }) };
+  }
+  const text = typeof document.text === 'string' ? document.text.trim() : '';
+  if (!text || text.includes('\0')) return invalid;
   if (text.length > MAX_DOCUMENT) return { status: 413, body: { error: 'document_too_large' } };
   const sections = importSections({ text, markdown: document.markdown === true });
   if (!sections.length) return invalid;

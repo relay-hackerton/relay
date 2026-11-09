@@ -174,7 +174,6 @@ window.Store = (() => {
     return { error: 'queue_timeout' };
   }
 
-  const bot = ({ lang = 'en' } = {}) => api('bot', { roomId, lang });
   /* a person opens a discussion (compose form) */
   const discuss = (d, { lang = 'en' } = {}) => api('discuss', { roomId, userId: me.userId, userName: me.name, lang, ...d });
   async function comment(discussionId, text) {
@@ -192,7 +191,7 @@ window.Store = (() => {
   const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, userId: me.userId, userName: me.name, sectionId, paras, rev, lang });
   const profile = (body) => api('profile', body);
   const sharedRoom = async () => { const r = await api('room', { shared: true }); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
-  /* documents imported by anyone: their first section is import-1 */
+  /* Documents created or imported in the library have an import-1 first section. */
   async function importedRooms() {
     need();
     const s = await sb.from('sections').select('room_id').eq('id', 'import-1').limit(40);
@@ -214,5 +213,5 @@ window.Store = (() => {
     }
   }
 
-  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, profile, setPresence, createRoom, sharedRoom, importedRooms, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
+  return { join, snapshot, on, say, vote, resolve, edit, discuss, comment, like, profile, setPresence, createRoom, sharedRoom, importedRooms, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
 })();
