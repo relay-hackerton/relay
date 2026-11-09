@@ -805,3 +805,23 @@ select {
 .file-input button { flex: none; min-height: 34px; font-size: 13px; font-weight: 600; }
 .file-input button:disabled { opacity: .5; cursor: default; }
 .file-input span { min-width: 0; color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.nick-spinner {
+  width: 14px; height: 14px; flex: none; border: 2px solid rgba(255,255,255,.45);
+  border-top-color: #fff; border-radius: 50%; animation: nick-spin .7s linear infinite;
+}
+@keyframes nick-spin { to { transform: rotate(360deg); } }
+#landForm[aria-busy="true"] .btn { opacity: .85; }
+.sec-body.editable:empty { min-height: 1.75em; }
+.opt[data-vote-row] { cursor: pointer; }
+.discussion-notice {
+  position: fixed; z-index: 210; top: calc(16px + env(safe-area-inset-top, 0px)); right: 16px;
+  width: min(340px, calc(100% - 32px)); display: flex; align-items: flex-start;
+  background: rgba(255,255,255,.96); border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: var(--shadow-pop); backdrop-filter: blur(16px);
+  animation: popin var(--normal) var(--ease);
+}
+.notice-body { flex: 1; min-width: 0; display: grid; gap: 3px; padding: 12px 14px; text-align: left; }
+.notice-body strong { font-size: 13px; }
+.notice-body span { color: var(--ink-2); overflow-wrap: anywhere; }
+.notice-close { padding: 8px 12px; font-size: 20px; color: var(--ink-2); }

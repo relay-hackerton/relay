@@ -2,7 +2,18 @@
    the browser keeps { userId, name, avatar } and re-checks it on every visit. */
 import { db as realDb, shortId } from './_lib.js';
 
-export const AVATARS = ['p:me', 'p:hyunwoo', 'c:#D9503B', 'c:#8B5CF6', 'c:#0EA5A4', 'c:#2E6BE0', 'c:#1E9A66', 'c:#D28B0A'];
+const portraitGroups = [
+  { names: new Set(['alice', 'anna', 'emily', 'emma', 'grace', 'jane', 'julia', 'lisa', 'lucy', 'mary', 'olivia', 'sarah', 'sophia', '서연', '수빈', '예린', '유나', '지은', '하은']), portraits: ['p:me', 'p:jieun'] },
+  { names: new Set(['andrew', 'daniel', 'david', 'henry', 'james', 'john', 'kevin', 'michael', 'peter', 'robert', 'thomas', 'william', '동현', '민수', '준호', '태호', '현우', '존']), portraits: ['p:minsu', 'p:hyunwoo'] },
+];
+const AVATARS = portraitGroups.flatMap(({ portraits }) => portraits);
+
+function chooseAvatar(name) {
+  // Only these exact nickname matches influence the portrait. Everything else uses the full pool.
+  const nickname = name.toLowerCase();
+  const options = portraitGroups.find(({ names }) => names.has(nickname))?.portraits || AVATARS;
+  return options[Math.floor(Math.random() * options.length)];
+}
 const RESERVED = ['agent', 'minsu', 'jieun', '에이전트', '민수', '지은'];
 
 export async function runProfile(input, deps = {}) {
@@ -25,7 +36,7 @@ export async function runProfile(input, deps = {}) {
     }
   }
   const id = userId || `u_${shortId(10)}`;
-  const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)];
+  const avatar = chooseAvatar(name);
   try { await d.insert('profiles', [{ user_id: id, name, avatar }]); }
   catch (e) { if (/duplicate|23505|unique/i.test(String(e.message))) return { status: 409, body: { error: 'taken' } }; throw e; }
   return { ok: true, userId: id, name, avatar };

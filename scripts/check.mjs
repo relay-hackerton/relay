@@ -5,7 +5,7 @@ import { mockDb } from './mockdb.mjs';
 
 process.env.SUPABASE_URL = 'http://mock'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'x';
 const { db, T } = mockDb();
-const { createRoom } = await import('../api/room.js');
+const { createRoom, sharedRoom } = await import('../api/room.js');
 const { runAgent, validate, findContested } = await import('../api/_agent.js');
 const { runBot } = await import('../api/bot.js');
 const { runResolve } = await import('../api/_resolve.js');
@@ -126,6 +126,21 @@ const recap = await runAgent({ roomId: recapRoom, userId: 'u_reader', text: 'Wha
 assert.equal(recap.action, 'none');
 assert.equal(recapTables.messages.at(-1).text, 'The background changed.');
 assert.equal(recapTables.changes.length, 3);
+
+// The production library opens a single shared document without demo messages or changes.
+const { db: sharedDb, T: sharedTables } = mockDb();
+const sharedId = await sharedRoom(sharedDb);
+assert.equal(await sharedRoom(sharedDb), sharedId);
+assert.equal(sharedTables.rooms.length, 1);
+assert.equal(sharedTables.sections.length, 8);
+assert.equal(sharedTables.messages.length, 0);
+assert.equal(sharedTables.changes.length, 0);
+
+const john = await runProfile({ name: 'John' }, deps);
+const emma = await runProfile({ name: 'Emma' }, deps);
+assert.match(john.avatar, /^p:(minsu|hyunwoo)$/);
+assert.match(emma.avatar, /^p:(me|jieun)$/);
+assert.equal((await runProfile({ userId: john.userId }, deps)).avatar, john.avatar);
 
 // 9. helpers
 assert.ok(validate({ action: 'edit', reply: 'x', sectionId: 's9', paras: ['a'] }, T.sections).startsWith('sectionId'));
