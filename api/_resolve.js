@@ -81,10 +81,12 @@ export async function runResolve(input, deps = {}) {
     await d.update('discussions', `id=${d.eq(disc.id)}`, { status: 'resolved', result: pick.id, resolved_at: at.toISOString(), resolved_by_id: userId, resolved_by_name: userName,
       applied: { before: main ? before : null, after: main ? after : record, change_id: changeId, log_change_id: log.changeId, at: at.toISOString() } });
     const secName = main ? secLabel(main.sec) : null;
+    const logName = secLabel(log.sec);
+    const logNameKo = `${log.sec.num}. 결정 기록`;
     await d.insert('messages', [{ id: uuid(), room_id: roomId, user_id: userId, user_name: userName, role: 'agent',
       text: main
-        ? L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}), so I changed ${secName} and recorded it in 8. Decision log.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 ${secName}을 바꾸고 8. 결정 기록에 남겼어요.`)
-        : L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}). I recorded it in 8. Decision log.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 8. 결정 기록에 남겼어요.`),
+        ? L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}), so I changed ${secName} and recorded it in ${logName}.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 ${secName}을 바꾸고 ${logNameKo}에 남겼어요.`)
+        : L(lang, `Discussion #${disc.n} concluded as option ${pick.id} (${pick.label}). I recorded it in ${logName}.`, `토론 #${disc.n}이 ${pick.id}안(${pick.label})으로 결론 나서 ${logNameKo}에 남겼어요.`),
       meta: { action: 'resolve', applied: main ? disc.section_id : 's8', change_id: changeId, log_change_id: log.changeId, discussion_id: disc.id } }]);
     return { ok: true, result: pick.id };
   } finally {

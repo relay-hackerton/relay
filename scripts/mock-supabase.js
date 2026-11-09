@@ -18,7 +18,7 @@
     on(kind, filter, cb) { if (kind === 'presence') { if (filter.event === 'sync') this.syncs.push(cb); } else if (kind === 'broadcast') (this.bc ||= []).push({ event: filter.event, cb }); else this.subs.push({ table: filter.table, cb }); return this; }
     send(msg) { return post('/mock/broadcast', { room: this.room, event: msg.event, payload: msg.payload }); }
     subscribe(cb) {
-      this.es = new EventSource(`/mock/events?room=${encodeURIComponent(this.room)}`);
+      this.es = new EventSource(`/mock/events?room=${encodeURIComponent(this.room)}&key=${encodeURIComponent(this.key)}`);
       this.es.onmessage = (m) => {
         const ev = JSON.parse(m.data);
         if (ev.presence) { this.presence = ev.presence; this.syncs.forEach((f) => f()); return; }

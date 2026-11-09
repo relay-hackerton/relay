@@ -25,6 +25,7 @@ export const db = {
   select: (table, query) => rest(`${table}?${query}`),
   insert: (table, rows) => rest(table, { method: 'POST', body: rows, prefer: 'return=representation' }),
   update: (table, query, patch) => rest(`${table}?${query}`, { method: 'PATCH', body: patch, prefer: 'return=representation' }),
+  delete: (table, query) => rest(`${table}?${query}`, { method: 'DELETE' }),
   rpc: (fn, args) => rest(`rpc/${fn}`, { method: 'POST', body: args }),
   eq,
 };

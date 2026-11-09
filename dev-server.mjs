@@ -40,10 +40,11 @@ async function mockRoute(req, res, url) {
   const { m, clients, presence, push, lib } = mock;
   if (url.pathname === '/mock/events') {
     const room = url.searchParams.get('room');
+    const key = url.searchParams.get('key');
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' }); res.write(': ok\n\n');
     if (!clients.has(room)) clients.set(room, new Set()); clients.get(room).add(res);
     res.write(`data: ${JSON.stringify({ presence: Object.fromEntries(presence.get(room) || []) })}\n\n`);
-    req.on('close', () => { clients.get(room).delete(res); const p = presence.get(room); if (p && res.__key) { p.delete(res.__key); push(room, { presence: Object.fromEntries(p) }); } });
+    req.on('close', () => { clients.get(room).delete(res); const p = presence.get(room); if (p && key) { p.delete(key); push(room, { presence: Object.fromEntries(p) }); } });
     return;
   }
   const b = await body(req);
@@ -72,7 +73,6 @@ async function mockRoute(req, res, url) {
   if (url.pathname === '/mock/presence') {
     if (!presence.has(b.room)) presence.set(b.room, new Map());
     presence.get(b.room).set(b.key, [b.state]);
-    (clients.get(b.room) || new Set()).forEach((r) => { if (!r.__key) r.__key = b.key; });
     push(b.room, { presence: Object.fromEntries(presence.get(b.room)) });
     return json(res, { ok: true });
   }

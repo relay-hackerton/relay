@@ -4,12 +4,22 @@ window.RelayPanels = (R) => {
   const optName = (o) => `${t('opt_fmt', { id: o.id })} ${o.label}`;
 
   /* ---------- discussions ---------- */
+  let renderedDraft;
   function renderDisc() {
+    const draft = state.draftDisc;
+    const existingForm = draft && draft === renderedDraft ? $('#compose') : null;
+    const focused = existingForm?.contains(document.activeElement) ? document.activeElement : null;
     const list = discussions().sort((a, b) => (a.status === b.status ? b.at - a.at : a.status === 'open' ? -1 : 1));
     $('#discPane').innerHTML = `<div class="disc-wrap">
       ${!state.draftDisc ? `<div class="disc-top"><div><b>${t('disc_top_title')}</b><span>${t('disc_top_sub')}</span></div><button class="btn primary" data-open-disc="none">${t('open_disc')}</button></div>` : ''}
-      ${state.draftDisc ? renderCompose(state.draftDisc) : ''}${list.length ? list.map(renderDiscussion).join('')
-      : !state.draftDisc ? `<div class="disc-empty"><h3>${t('disc_empty_h')}</h3><p>${t('disc_empty_p')}</p></div>` : ''}</div>`;
+      ${draft ? (existingForm ? '<div id="composeSlot"></div>' : renderCompose(draft)) : ''}${list.length ? list.map(renderDiscussion).join('')
+      : !draft ? `<div class="disc-empty"><h3>${t('disc_empty_h')}</h3><p>${t('disc_empty_p')}</p></div>` : ''}</div>`;
+    renderedDraft = draft;
+    if (existingForm) {
+      $('#composeSlot').replaceWith(existingForm);
+      existingForm.querySelector('[type="submit"]').disabled = !!state.composing;
+      if (focused) focused.focus({ preventScroll: true });
+    }
   }
   function renderCompose(d) {
     return `

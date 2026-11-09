@@ -192,6 +192,13 @@ window.RelayI18N = (() => {
 
   /* ---------- MVP additions (live rooms). EN first; a key missing in KO falls back to EN. ---------- */
   Object.assign(EN, {
+    profile_title: 'Choose a nickname', nickname: 'Nickname', continue: 'Continue',
+    nickname_taken: 'Someone in this room is already using that nickname.', nickname_unavailable: 'Could not check nicknames. Try joining again.',
+    copy_link: 'Copy link', discussion_opened: 'Discussion #{n} opened · {title}',
+    start_import: 'Import a document', import_file: 'Markdown or plain text (.md, .txt)',
+    import_invalid: 'Choose a non-empty Markdown or text file.', import_large: 'Use a document with 30,000 characters or fewer.',
+    import_suggestion: 'Summarize this document.',
+    import_welcome: '<p>Hi {name}. This room starts from your imported document. Ask me for a change or open a discussion.</p>',
     land_tag: 'One agent, used by the whole team. Every change shows who made it and why.',
     land_name: 'Your name', land_name_ph: 'e.g. Alex', land_avatar: 'Avatar',
     land_start: 'Start a room', land_join: 'Join room {id}', land_join_btn: 'Join',
@@ -201,7 +208,7 @@ window.RelayI18N = (() => {
     land_err_name: 'Enter your name', land_err_conf: 'The server is not configured yet (Supabase keys missing).',
     land_err_room: 'That room does not exist. Start a new one.', land_busy_start: 'Creating your room…', land_busy_join: 'Joining…',
     land_points: ['Ask the agent in your own session', 'Watch teammates’ requests land in the shared document', 'When edits disagree, the agent opens a discussion'],
-    bot_btn: 'Bring in a teammate', bot_busy: 'Jieun is joining…', bot_on: 'Jieun joined', invite_btn: 'Copy invite link', toast_copied: 'Invite link copied',
+    bot_btn: 'Bring in a teammate', bot_busy: 'Jieun is joining…', bot_on: 'Jieun joined', invite_btn: 'Copy invite link', toast_copied: 'Link copied',
     presence_bot: 'Teammate bot', agent_req: "{name}'s request", agent_req_sec: "{name}'s request · {sec}", agent_queued: "Queued · {name}'s request first",
     agent_resolving: 'Discussion result · {sec}',
     guide_title: 'Try it in 3 minutes', guide_step: 'Step {n} of 4',
@@ -234,6 +241,13 @@ window.RelayI18N = (() => {
     conflict_disc: 'I opened discussion #{n} so the team can decide.',
   });
   Object.assign(KO, {
+    profile_title: '닉네임을 정해 주세요', nickname: '닉네임', continue: '계속',
+    nickname_taken: '이 방에서 이미 쓰고 있는 닉네임이에요.', nickname_unavailable: '닉네임 중복을 확인할 수 없어요. 다시 들어가 주세요.',
+    copy_link: '링크 복사', discussion_opened: '토론 #{n}이 열렸어요 · {title}',
+    start_import: '문서 가져오기', import_file: 'Markdown 또는 텍스트 파일 (.md, .txt)',
+    import_invalid: '내용이 있는 Markdown 또는 텍스트 파일을 선택해 주세요.', import_large: '3만 자 이하의 문서를 선택해 주세요.',
+    import_suggestion: '이 문서를 요약해 줘.',
+    import_welcome: '<p>안녕하세요, {name}님. 가져온 문서로 시작하는 방이에요. 변경을 요청하거나 토론을 열 수 있어요.</p>',
     land_tag: '에이전트 하나를 팀 전체가 함께 써요. 모든 변경에 누가, 왜 바꿨는지 남아요.',
     land_name: '이름', land_name_ph: '예: 유래', land_avatar: '아바타',
     land_start: '방 만들기', land_join: '{id} 방에 들어가기', land_join_btn: '들어가기',
@@ -243,7 +257,7 @@ window.RelayI18N = (() => {
     land_err_name: '이름을 입력해 주세요', land_err_conf: '서버 설정이 아직 안 됐어요 (Supabase 키 없음).',
     land_err_room: '없는 방이에요. 새 방을 만들어 주세요.', land_busy_start: '방을 만드는 중…', land_busy_join: '들어가는 중…',
     land_points: ['내 세션에서 에이전트에게 요청', '팀원의 요청이 공유 문서에 바로 반영되는 걸 보기', '수정이 엇갈리면 에이전트가 토론을 열기'],
-    bot_btn: '팀원 불러오기', bot_busy: '지은님이 들어오는 중…', bot_on: '지은님 참여 중', invite_btn: '초대 링크 복사', toast_copied: '초대 링크를 복사했어요',
+    bot_btn: '팀원 불러오기', bot_busy: '지은님이 들어오는 중…', bot_on: '지은님 참여 중', invite_btn: '초대 링크 복사', toast_copied: '링크를 복사했어요',
     presence_bot: '팀원 봇', agent_req: '{name}님 요청', agent_req_sec: '{name}님 요청 · {sec}', agent_queued: '대기 중 · {name}님 요청 먼저',
     agent_resolving: '토론 결론 · {sec}',
     guide_title: '3분 체험', guide_step: '{n} / 4단계',
