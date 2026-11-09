@@ -167,6 +167,7 @@ window.Store = (() => {
   }
   /* a direct edit of one section; rev is the version I started from */
   const edit = (sectionId, paras, rev, { lang = 'en' } = {}) => api('edit', { roomId, userId: me.userId, userName: me.name, sectionId, paras, rev, lang });
+  const profile = (body) => api('profile', body);
   const createRoom = async () => { const r = await api('room', {}); if (!r.roomId) throw new Error(r.error || 'room_failed'); return r.roomId; };
 
   let lastTrack = '';
@@ -181,5 +182,5 @@ window.Store = (() => {
     }
   }
 
-  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
+  return { join, snapshot, on, say, vote, resolve, bot, edit, discuss, comment, like, profile, setPresence, createRoom, configured: () => !!sb, me: () => me, roomId: () => roomId, tabId: () => TAB, lastEventAt: () => lastEvent };
 })();

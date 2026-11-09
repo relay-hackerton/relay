@@ -1,7 +1,7 @@
 /* In-memory stand-in for the Supabase REST helper (api/_lib.js `db`), for local tests without a project. */
 import { randomUUID } from 'node:crypto';
 export function mockDb() {
-  const T = { rooms: [], sections: [], changes: [], messages: [], discussions: [], votes: [], reactions: [], comments: [] };
+  const T = { rooms: [], sections: [], changes: [], messages: [], discussions: [], votes: [], reactions: [], comments: [], profiles: [] };
   const parse = (q) => {
     const f = [], o = {};
     for (const part of String(q || '').split('&').filter(Boolean)) {
@@ -11,7 +11,7 @@ export function mockDb() {
     }
     return { f, o };
   };
-  const match = (row, f) => f.every(({ k, op, val }) => (op === 'eq' ? String(row[k]) === val : op === 'gte' ? new Date(row[k]) >= new Date(val) : true));
+  const match = (row, f) => f.every(({ k, op, val }) => (op === 'eq' ? String(row[k]) === val : op === 'ilike' ? String(row[k]).toLowerCase() === val.replace(/\\(.)/g, '$1').toLowerCase() : op === 'gte' ? new Date(row[k]) >= new Date(val) : true));
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const db = {
     eq: (v) => `eq.${encodeURIComponent(v)}`,

@@ -196,3 +196,15 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ---------- 11/9 additions: nicknames (unique, case-insensitive), written only by /api/profile ----------
+create table if not exists profiles (
+  user_id     text primary key,
+  name        text not null,
+  avatar      text not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists profiles_name_unique on profiles (lower(name));
+alter table profiles enable row level security;
+drop policy if exists read_all on profiles; create policy read_all on profiles for select using (true);

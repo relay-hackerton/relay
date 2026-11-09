@@ -11,6 +11,7 @@ const { runBot } = await import('../api/bot.js');
 const { runResolve } = await import('../api/_resolve.js');
 const { runEdit } = await import('../api/_edit.js');
 const { runDiscuss } = await import('../api/_discuss.js');
+const { runProfile } = await import('../api/_profile.js');
 
 const AUTO = 'Team invite: with contacts permission (Google · Slack), auto-invite members on the same domain. The permission screen can be skipped.';
 const MANUAL = 'Team invite: invite teammates directly by email or invite link.';
@@ -92,6 +93,15 @@ assert.equal(r.result, 'A'); assert.match(s6().paras[0], /5% rollout/); assert.m
 // 8. call limit
 T.rooms[0].calls = 30;
 assert.equal((await runAgent({ roomId, userId: 'u_me', userName: 'Judge', text: 'hi', lang: 'en' }, deps)).limited, true);
+
+// 8b. nicknames: unique (case-insensitive), kept per user id, avatar assigned once
+const p1 = await runProfile({ name: 'Yoorae' }, deps); assert.equal(p1.ok, true); assert.match(p1.userId, /^u_/); assert.ok(p1.avatar);
+assert.equal((await runProfile({ name: 'yoorae' }, deps)).body.error, 'taken');
+assert.equal((await runProfile({ name: 'Jieun' }, deps)).body.error, 'taken');
+const again = await runProfile({ name: 'Yoorae', userId: p1.userId }, deps); assert.equal(again.userId, p1.userId); assert.equal(again.avatar, p1.avatar);
+const renamed = await runProfile({ name: 'Yoorae K', userId: p1.userId }, deps); assert.equal(renamed.name, 'Yoorae K');
+assert.equal((await runProfile({ userId: p1.userId }, deps)).name, 'Yoorae K');
+assert.equal((await runProfile({ name: 'x' }, deps)).body.error, 'length');
 
 // 9. helpers
 assert.ok(validate({ action: 'edit', reply: 'x', sectionId: 's9', paras: ['a'] }, T.sections).startsWith('sectionId'));

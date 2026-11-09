@@ -194,7 +194,8 @@ window.RelayI18N = (() => {
   Object.assign(EN, {
     land_tag: 'One agent, used by the whole team. Every change shows who made it and why.',
     land_name: 'Your name', land_name_ph: 'e.g. Alex', land_avatar: 'Avatar',
-    land_start: 'Start a room', land_join: 'Join room {id}', land_join_btn: 'Join', land_new: 'Start a new room instead',
+    land_start: 'Start a room', land_join: 'Join room {id}', land_join_btn: 'Join',
+    nick_title: 'What should we call you?', nick_sub: 'Your nickname is shown to everyone in a room. It stays on this browser.', nick_label: 'Nickname', nick_ph: 'e.g. Yoorae', nick_go: 'Continue', nick_checking: 'Checking…', nick_taken: 'That nickname is taken. Try another one.', nick_len: 'Use 2–20 characters.', land_new: 'Start a new room instead',
     land_hint_start: 'You get a fresh copy of the demo spec, with Minsu and Jieun’s earlier edits. Invite others with a link.',
     land_hint_join: 'You were invited to room {id}. Everyone in it sees the same document live.',
     land_err_name: 'Enter your name', land_err_conf: 'The server is not configured yet (Supabase keys missing).',
@@ -235,7 +236,8 @@ window.RelayI18N = (() => {
   Object.assign(KO, {
     land_tag: '에이전트 하나를 팀 전체가 함께 써요. 모든 변경에 누가, 왜 바꿨는지 남아요.',
     land_name: '이름', land_name_ph: '예: 유래', land_avatar: '아바타',
-    land_start: '방 만들기', land_join: '{id} 방에 들어가기', land_join_btn: '들어가기', land_new: '새 방 만들기',
+    land_start: '방 만들기', land_join: '{id} 방에 들어가기', land_join_btn: '들어가기',
+    nick_title: '뭐라고 불러 드릴까요?', nick_sub: '닉네임은 방에 있는 모두에게 보여요. 이 브라우저에 기억돼요.', nick_label: '닉네임', nick_ph: '예: 유래', nick_go: '계속', nick_checking: '확인하는 중…', nick_taken: '이미 쓰는 닉네임이에요. 다른 걸로 해 주세요.', nick_len: '2~20자로 적어 주세요.', land_new: '새 방 만들기',
     land_hint_start: '민수·지은의 이전 수정이 담긴 데모 기획서 사본을 새로 받아요. 링크로 다른 사람을 초대할 수 있어요.',
     land_hint_join: '{id} 방에 초대받았어요. 방에 있는 모두가 같은 문서를 실시간으로 봐요.',
     land_err_name: '이름을 입력해 주세요', land_err_conf: '서버 설정이 아직 안 됐어요 (Supabase 키 없음).',

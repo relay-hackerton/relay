@@ -781,3 +781,4 @@ body:not(.on-home) .orb { animation: none; }
 
 .modal.join .sub { margin-bottom: 14px; }
 .modal.join .avatar-pick { margin-bottom: 14px; }
+.type-caret { display: inline-block; width: 2px; height: 1em; margin-left: 1px; vertical-align: -2px; background: var(--agent-ink); animation: blink .8s steps(1) infinite; }

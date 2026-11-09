@@ -52,7 +52,7 @@
   const state = {
     view: 'home', tab: 'doc', me: null, roomId: null, room: null, viewing: null, landing: { busy: false, err: '', avatar: null },
     zoom: 100, page: 1, units: clone(LIBRARY).map((u) => (u.live ? { ...u, title: DOC_EN.title } : u)), issueDraft: null,
-    myPrivate: (() => { try { return localStorage.getItem('relay.private') === '1'; } catch (e) { return false; } })(),
+    myPrivate: false,   // per visit: a session starts public
     sections: [], changeList: [], messages: [], discRows: [], votes: [], presence: [],
     editing: {}, recent: {}, showDiff: {}, unread: new Set(), lastSeen: {},
     openPop: null, popMeta: null, openEntry: null, openDiffs: new Set(), logCat: 'all', logMember: 'all',
@@ -281,9 +281,27 @@
     if (!d && !a) return '';
     return `<div class="diffmini">${d ? `<span class="d">${esc(d.text)}</span>` : ''}${a ? `<span class="a">${esc(a.text)}</span>` : ''}</div>`;
   }
+  /* replies that arrive while I am here are typed out; the extras (diff, buttons) appear when the text is done */
+  const reveal = {};
+  let revealTimer = null;
+  function startReveal(id) {
+    reveal[id] = 0;
+    if (revealTimer) return;
+    revealTimer = setInterval(() => {
+      const ids = Object.keys(reveal); if (!ids.length) { clearInterval(revealTimer); revealTimer = null; return; }
+      ids.forEach((mid) => {
+        const m = state.messages.find((x) => x.id === mid); if (!m) { delete reveal[mid]; return; }
+        reveal[mid] += Math.max(2, Math.ceil(m.text.length / 70));
+        const el = $(`#msgs .bub[data-mid="${mid}"] p.reply`);
+        if (reveal[mid] >= m.text.length) { delete reveal[mid]; if (m.userId === state.viewing) renderChat(); return; }
+        if (el) { el.textContent = m.text.slice(0, reveal[mid]); const c = document.createElement('span'); c.className = 'type-caret'; el.appendChild(c); }
+      });
+    }, 22);
+  }
   function agentHtml(m) {
     const meta = m.meta || {};
-    let h = `<p>${esc(m.text)}</p>`;
+    if (reveal[m.id] !== undefined) return `<p class="reply">${esc(m.text.slice(0, reveal[m.id]))}<span class="type-caret"></span></p>`;
+    let h = `<p class="reply">${esc(m.text)}</p>`;
     const c = meta.change_id && changeById(meta.change_id);
     const via = meta.model && meta.model.label ? ` · <span class="via">${esc(meta.model.label)}</span>` : '';
     if (meta.applied && meta.action === 'edit') h += `<p class="meta"><span class="done"><i></i>${t('msg.applied_meta')}</span> · ${secRef(meta.applied)}${via}</p>${c ? diffMini(c) : ''}`;
@@ -303,14 +321,14 @@
     const list = state.messages.filter((m) => m.userId === id);
     const items = [];
     if (mine) items.push({ role: 'agent', html: t('msg.welcome', { name: esc(name(id)) }) + `<div class="acts">${botDone() ? '' : `<button class="btn primary" data-bot ${state.botBusy ? 'disabled' : ''}>${state.botBusy ? t('bot_busy') : t('bot_btn')}</button>`}<button class="btn" data-invite>${t('invite_btn')}</button></div>`, at: new Date(0) });
-    list.forEach((m) => items.push(m.role === 'agent' ? { role: 'agent', html: agentHtml(m), at: m.at } : { role: 'me', text: m.text, at: m.at }));
+    list.forEach((m) => items.push(m.role === 'agent' ? { role: 'agent', html: agentHtml(m), at: m.at, mid: m.id } : { role: 'me', text: m.text, at: m.at }));
     if (mine) state.localMsgs.forEach((m) => items.push(m));
     items.sort((a, b) => a.at - b.at);
     if (mine && state.queued) items.push({ role: 'agent', html: t('msg.queued', { name: esc((state.room.agent || {}).by_name || '?') }) });
     if (mine && state.pending && !state.queued) items.push({ kind: 'typing' });
     box.innerHTML = (!mine && !list.length ? `<div class="private-note"><p>${esc(t('sess_empty'))}</p></div>` : '') + items.map((m) => {
       if (m.kind === 'typing') return `<div class="msg agent">${avatar('agent', '', 'working')}<div class="bub typing"><i></i><i></i><i></i></div></div>`;
-      return `<div class="msg ${m.role}">${m.role === 'agent' ? avatar('agent') : ''}<div class="bub">${m.role === 'me' ? `<p>${esc(m.text)}</p>` : m.html}</div></div>`;
+      return `<div class="msg ${m.role}">${m.role === 'agent' ? avatar('agent') : ''}<div class="bub" ${m.mid ? `data-mid="${m.mid}"` : ''}>${m.role === 'me' ? `<p>${esc(m.text)}</p>` : m.html}</div></div>`;
     }).join('');
     box.scrollTop = box.scrollHeight;
   }
@@ -720,55 +738,51 @@
     setTimeout(() => { unit.fresh = false; }, 2000);
   }
 
-  /* ---------- who you are: name and avatar, asked once in the prototype's modal style ---------- */
+  /* ---------- who you are: a nickname, unique across Relay, asked once and kept on this browser ---------- */
   const roomFromPath = () => { const m = location.pathname.match(/^\/r\/([a-z0-9]{4,12})\/?$/i); return m ? m[1].toLowerCase() : null; };
-  function loadMe() { try { const v = JSON.parse(localStorage.getItem('relay.me') || 'null'); return v && v.userId && v.name ? v : null; } catch (e) { return null; } }
-  function saveMe(v) { try { localStorage.setItem('relay.me', JSON.stringify(v)); } catch (e) { /* private mode */ } }
+  function loadMe() { try { const v = JSON.parse(localStorage.getItem('relay.me') || 'null'); return v && /^u_[a-z0-9]{6,20}$/.test(v.userId) && v.name ? v : null; } catch (e) { return null; } }
+  function saveMe(v) { try { localStorage.setItem('relay.me', JSON.stringify({ userId: v.userId, name: v.name, avatar: v.avatar })); } catch (e) { /* private mode */ } }
+  function forgetMe() { try { localStorage.removeItem('relay.me'); } catch (e) { /* fine */ } state.me = null; }
   function closeModal() { $('#modalRoot').innerHTML = ''; }
-  const closeJoin = () => { if ($('#landForm')) closeModal(); };   // keep the guide modal that entering the room may have opened
-  /* mode: 'start' (create a room from the live card) or 'join' (an invite link) */
-  function openJoinModal(mode) {
-    const L = state.landing; L.mode = mode; const rid = mode === 'join' ? roomFromPath() : null; const saved = loadMe();
-    const nm = L.name ?? (saved ? saved.name : '');
-    const av = L.avatar || (saved && saved.avatar) || AVATARS[0]; L.avatar = av;
-    $('#modalRoot').innerHTML = `<div class="overlay" ${L.busy ? '' : 'data-overlay'}><form class="modal issue join" id="landForm" role="dialog" aria-modal="true" aria-labelledby="jTitle">
-      <h2 id="jTitle">${esc(rid ? t('land_join', { id: rid }) : t('land_start'))}</h2>
-      <p class="sub">${esc(rid ? t('land_hint_join', { id: rid }) : t('land_hint_start'))}</p>
-      <label>${t('land_name')}<input id="lName" maxlength="24" autocomplete="off" value="${esc(nm)}" placeholder="${esc(t('land_name_ph'))}"></label>
-      <div class="lbl-row">${t('land_avatar')}</div>
-      <div class="avatar-pick">${AVATARS.map((a) => `<button type="button" class="pick ${a === av ? 'on' : ''}" data-avatar="${a}" aria-pressed="${a === av}">${avatarOf(a, nm || '?')}</button>`).join('')}</div>
-      <div class="f"><span class="err">${esc(L.err || '')}</span><span class="spacer"></span>${rid || L.busy ? '' : `<button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button>`}<button type="submit" class="btn primary" ${L.busy ? 'disabled' : ''}>${esc(L.busy ? (rid ? t('land_busy_join') : t('land_busy_start')) : (rid ? t('land_join_btn') : t('land_start')))}</button></div>
+  function openNameModal(err = '') {
+    const L = state.landing;
+    $('#modalRoot').innerHTML = `<div class="overlay"><form class="modal issue join" id="landForm" role="dialog" aria-modal="true" aria-labelledby="jTitle">
+      <h2 id="jTitle">${t('nick_title')}</h2>
+      <p class="sub">${esc(t('nick_sub'))}</p>
+      <label>${t('nick_label')}<input id="lName" maxlength="20" autocomplete="nickname" value="${esc(L.name || '')}" placeholder="${esc(t('nick_ph'))}" ${L.busy ? 'disabled' : ''}></label>
+      <div class="f"><span class="err" role="alert">${esc(err)}</span><span class="spacer"></span><button type="submit" class="btn primary" ${L.busy ? 'disabled' : ''}>${esc(L.busy ? t('nick_checking') : t('nick_go'))}</button></div>
     </form></div>`;
     setTimeout(() => { const i = $('#lName'); if (i && !L.busy) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 30);
   }
-  async function submitLanding() {
+  async function submitName() {
     const L = state.landing; if (L.busy) return;
-    const nm = ($('#lName').value || '').trim(); L.name = nm;
-    if (!nm) { L.err = t('land_err_name'); openJoinModal(L.mode); return; }
-    if (!Store.configured()) { L.err = t('land_err_conf'); openJoinModal(L.mode); return; }
-    const saved = loadMe();
-    const me = { userId: saved && saved.userId ? saved.userId : `u_${Math.random().toString(36).slice(2, 10)}`, name: nm, avatar: L.avatar || AVATARS[0] };
-    saveMe(me); state.me = me; learn(me.userId, me.name, me.avatar);
-    L.err = '';
-    if (L.mode === 'join') return joinRoom(roomFromPath());
-    return startRoom();
+    const nm = ($('#lName').value || '').replace(/\s+/g, ' ').trim(); L.name = nm;
+    if (nm.length < 2 || nm.length > 20) return openNameModal(t('nick_len'));
+    L.busy = true; openNameModal();
+    let r; try { r = await Store.profile({ name: nm }); } catch (e) { r = { error: e.message }; }
+    L.busy = false;
+    if (!r || !r.ok) return openNameModal(r && r.error === 'taken' ? t('nick_taken') : r && r.error === 'length' ? t('nick_len') : t('err_generic', { err: (r && r.error) || '?' }));
+    setMe(r); closeModal();
+    const rid = roomFromPath(); if (rid) joinRoom(rid); else renderHome();
   }
+  function setMe(p) { state.me = { userId: p.userId, name: p.name, avatar: p.avatar }; saveMe(state.me); learn(p.userId, p.name, p.avatar); }
   /* the live card at "/" makes a fresh room; inside a room it just opens the document */
   async function startRoom() {
-    const L = state.landing;
-    if (!state.me) return openJoinModal('start');
-    L.busy = true; openJoinModal('start');
-    try { const rid = await Store.createRoom(); history.pushState(null, '', `/r/${rid}${location.search}`); L.busy = false; await enterRoom(rid); closeJoin(); }
-    catch (e) { L.err = t('err_generic', { err: e.message }); openJoinModal('start'); }
-    L.busy = false;
+    if (!state.me) return openNameModal();
+    if (state.creating) return; state.creating = true; toast(t('land_busy_start'));
+    try { const rid = await Store.createRoom(); history.pushState(null, '', `/r/${rid}${location.search}`); await enterRoom(rid); }
+    catch (e) { toast(t('err_generic', { err: e.message })); }
+    state.creating = false;
   }
   async function joinRoom(rid) {
-    const L = state.landing; L.busy = true; openJoinModal('join');
-    try { L.busy = false; await enterRoom(rid); closeJoin(); }
-    catch (e) { L.busy = false; if (e.message === 'room_not_found') { history.replaceState(null, '', `/${location.search}`); L.err = t('land_err_room'); openJoinModal('start'); } else { L.err = t('err_generic', { err: e.message }); openJoinModal('join'); } return; }
-    L.busy = false;
+    if (!state.me) return openNameModal();
+    try { await enterRoom(rid); }
+    catch (e) {
+      if (e.message === 'room_not_found') { history.replaceState(null, '', `/${location.search}`); showView('home'); toast(t('land_err_room')); }
+      else toast(t('err_generic', { err: e.message }));
+    }
   }
-  /* the walkthrough modal, shown once per room */
+  /* the walkthrough modal (prototype); not opened automatically */
   function openGuide() {
     $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><div class="modal" role="dialog" aria-modal="true" aria-labelledby="gTitle">
       <h2 id="gTitle">${t('guide_h')}</h2><p class="sub">${t('guide_sub')}</p>
@@ -777,12 +791,7 @@
     </div></div>`;
     setTimeout(() => $('[data-modal-close]') && $('[data-modal-close]').focus(), 30);
   }
-  function maybeGuide() {
-    if ($('#landForm')) closeModal();
-    const k = `relay.guide.${state.roomId}`;
-    try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch (e) { /* fine */ }
-    openGuide();
-  }
+
 
   /* ---------- joining a room and live updates ---------- */
   async function enterRoom(rid) {
@@ -834,7 +843,8 @@
     setTimeout(() => { renderDoc(); renderTabs(); typeIn(next.id, prev); }, 350);
   });
   Store.on('changes', ({ type, row }) => { if (type !== 'INSERT') return; const c = normChange(row); learn(c.by, c.byName); upsert(state.changeList, c); renderDoc(); renderLog(); renderTabs(); renderChat(); renderGuide(); renderHeaderActions(); });
-  Store.on('messages', ({ type, row }) => { if (type !== 'INSERT') return; const m = normMessage(row); learn(m.userId, m.userName, m.meta.avatar); upsert(state.messages, m);
+  Store.on('messages', ({ type, row }) => { if (type !== 'INSERT') return; const m = normMessage(row); learn(m.userId, m.userName, m.meta.avatar); const isNew = upsert(state.messages, m);
+    if (isNew && m.role === 'agent' && state.view === 'doc' && Date.now() - m.at < 30000) startReveal(m.id);
     if (m.userId === ME() && m.role === 'agent' && m.meta.compose && state.view === 'doc') setTimeout(() => P.composeDiscussion(m.meta.compose.sectionId || 'none', m.meta.compose), 400); if (m.userId === state.viewing) renderChat(); renderLog(); renderTabs(); });
   Store.on('discussions', ({ row }) => { if (!row || row.room_id !== state.roomId) return; upsert(state.discRows, row); state.discRows.sort((a, b) => a.n - b.n); P.renderDisc(); renderTabs(); renderDoc(); renderAgent(); renderGuide(); renderLog(); });
   Store.on('votes', ({ type, row }) => {
@@ -875,7 +885,6 @@
     Store.setPresence({ private: state.myPrivate });
     renderPresence(); renderChatHead(); renderComposer(); renderGuide(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
     setTimeout(trackMySection, 600);
-    maybeGuide();
   }
   let toastTimer;
   function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 2200); }
@@ -897,16 +906,15 @@
     if (t0.classList.contains('tab')) { const tab = t0.id.replace('tab', '').toLowerCase(); setTab(tab); if (tab === 'disc') P.renderDisc(); return; }
     if (t0.hasAttribute('data-suggest')) return send(t('guide_suggest'));
     if (t0.classList.contains('chip')) return send(t0.textContent);
-    if (d.avatar) { state.landing.avatar = d.avatar; state.landing.name = $('#lName').value; return openJoinModal(state.landing.mode); }
-    if (t0.hasAttribute('data-modal-close')) { if (!state.landing.busy) closeModal(); return; }
-    if (t0.hasAttribute('data-overlay')) { if (e.target === t0 && !state.landing.busy && !(state.landing.mode === 'join' && !state.roomId)) closeModal(); return; }
+    if (t0.hasAttribute('data-modal-close')) { if (!$('#landForm')) closeModal(); return; }
+    if (t0.hasAttribute('data-overlay')) { if (e.target === t0 && !$('#landForm')) closeModal(); return; }
     if (t0.hasAttribute('data-reset')) { closeModal(); history.pushState(null, '', `/${location.search}`); state.roomId = null; return startRoom(); }
     if (t0.hasAttribute('data-add-issue')) return openIssueModal();
     if (d.pick) { const set = state.issueDraft.members; if (d.pick !== 'me') { if (set.has(d.pick)) set.delete(d.pick); else set.add(d.pick); } t0.classList.toggle('on', set.has(d.pick)); t0.setAttribute('aria-pressed', set.has(d.pick)); return; }
     if (d.openUnit) { const u = state.units.find((x) => x.id === d.openUnit); if (u && u.live) return state.roomId ? showView('doc') : startRoom(); return toast(t('toast_only_first')); }
     if (d.lang) return setLang(d.lang);
     if (t0.hasAttribute('data-home')) return showView('home');
-    if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; try { localStorage.setItem('relay.private', state.myPrivate ? '1' : '0'); } catch (err) { /* fine */ } Store.setPresence({ private: state.myPrivate }); renderPresence(); renderComposer(); return; }
+    if (t0.hasAttribute('data-lock')) { state.myPrivate = !state.myPrivate; Store.setPresence({ private: state.myPrivate }); renderPresence(); renderComposer(); return; }
     if (d.page) { state.page = Math.min(2, Math.max(1, state.page + Number(d.page))); renderViewer(); return gotoPage(state.page); }
     if (d.zoom) { state.zoom = Math.min(130, Math.max(80, state.zoom + Number(d.zoom))); return renderDoc(); }
     if (t0.hasAttribute('data-bot')) return bringTeammate();
@@ -942,7 +950,7 @@
   });
   document.addEventListener('click', () => { if (state.view === 'doc') dismissSeen(); });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && $('#modalRoot').firstChild && !state.landing.busy && !(state.landing.mode === 'join' && !state.roomId)) return closeModal();
+    if (e.key === 'Escape' && $('#modalRoot').firstChild && !$('#landForm')) return closeModal();
     if (state.myEdit && e.key === 'Escape') return cancelMyEdit();
     if (state.myEdit && (e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); return saveMyEdit(); }
     if (state.view === 'doc' && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key.length === 1 || e.key === 'Enter')) dismissSeen();
@@ -950,7 +958,7 @@
   document.addEventListener('submit', (e) => {
     const f = e.target;
     if (f.id === 'composer') { e.preventDefault(); const inp = $('#input'); const v = inp.value.trim(); if (!v || state.pending) return; inp.value = ''; inp.style.height = ''; send(v); }
-    if (f.id === 'landForm') { e.preventDefault(); submitLanding(); }
+    if (f.id === 'landForm') { e.preventDefault(); submitName(); }
     if (f.id === 'issueForm') { e.preventDefault(); createIssue(); }
     if (f.id === 'compose') { e.preventDefault(); P.openDiscussionFromDraft(); }
     if (f.dataset.cmt) { e.preventDefault(); const v = f.querySelector('input').value.trim(); if (v) { f.querySelector('input').value = ''; P.comment(f.dataset.cmt, v); } }
@@ -960,12 +968,6 @@
     if (e.target.id === 'logCat') { state.logCat = e.target.value; renderLog(); }
     if (e.target.id === 'logMember') { state.logMember = e.target.value; renderLog(); }
     if (e.target.dataset.conclusion) { state.conclusion[e.target.dataset.conclusion] = e.target.value; P.renderDisc(); }
-  });
-  /* landing: color avatars show the first letter of the name as it is typed */
-  document.addEventListener('input', (e) => {
-    if (e.target.id !== 'lName') return;
-    const ch = initial(e.target.value || '?');
-    $$('.avatar-pick .av').forEach((el) => { if (!el.querySelector('img')) el.textContent = ch; });
   });
   let typingTimer;
   $('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('#composer').requestSubmit(); } });
@@ -985,10 +987,18 @@
   setAgent('idle', t('agent_idle'));
   loadModels();
   (async () => {
-    const rid = roomFromPath(); const saved = loadMe();
-    if (saved) { state.me = saved; learn(saved.userId, saved.name, saved.avatar); }
+    try { ['relay.private'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
+    const rid = roomFromPath();
     showView('home');
-    if (!Store.configured()) { state.landing.err = t('land_err_conf'); return openJoinModal('start'); }
-    if (rid) { if (saved) return joinRoom(rid); return openJoinModal('join'); }
+    if (!Store.configured()) return toast(t('land_err_conf'));
+    const saved = loadMe();
+    if (!saved) { forgetMe(); return openNameModal(); }
+    /* the nickname lives on the server; a browser that remembers someone unknown (or renamed) is corrected here */
+    let r; try { r = await Store.profile({ userId: saved.userId }); } catch (e) { r = { error: e.message }; }
+    if (r && r.ok) setMe(r);
+    else if (r && r.error === 'not_found') { forgetMe(); return openNameModal(); }
+    else setMe(saved);   // network trouble: keep going with what we have
+    renderHome();
+    if (rid) joinRoom(rid);
   })();
 })();
