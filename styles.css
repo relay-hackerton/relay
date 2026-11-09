@@ -825,3 +825,35 @@ select {
 .notice-body strong { font-size: 13px; }
 .notice-body span { color: var(--ink-2); overflow-wrap: anywhere; }
 .notice-close { padding: 8px 12px; font-size: 20px; color: var(--ink-2); }
+
+/* ---------- first paint: nothing until the script has picked the view (library or room), so neither flashes ---------- */
+html:not(.ready) .app { visibility: hidden; animation: reveal-app 0s 3s forwards; }   /* a broken script still shows the page after 3 s */
+@keyframes reveal-app { to { visibility: visible; } }
+.paper.loading { min-height: 60vh; display: grid; align-content: start; gap: 14px; }
+.paper.loading .sk { height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(27,33,48,.06), rgba(27,33,48,.11), rgba(27,33,48,.06)); background-size: 200% 100%; animation: sk-shine 1.4s ease-in-out infinite; }
+.paper.loading .sk.w30 { width: 30%; } .paper.loading .sk.w50 { width: 50%; height: 22px; } .paper.loading .sk.w70 { width: 70%; } .paper.loading .sk.w80 { width: 80%; }
+@keyframes sk-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .paper.loading .sk { animation: none; } }
+
+/* ---------- light Markdown inside document paragraphs (markdown.js) ---------- */
+.sec-body p.md-li, .sec-body p.md-ol { position: relative; padding-left: calc(20px + var(--md-depth, 0) * 18px); }
+.sec-body p.md-li::before { content: "•"; position: absolute; left: calc(6px + var(--md-depth, 0) * 18px); color: var(--ink-3, #8F98AB); }
+.sec-body p.md-task::before { content: none; }
+.sec-body .md-box { position: absolute; left: calc(1px + var(--md-depth, 0) * 18px); top: .32em; width: 13px; height: 13px; border: 1.5px solid #8F98AB; border-radius: 4px; display: grid; place-items: center; font-size: 9px; line-height: 1; color: #1E9A66; }
+.sec-body .md-n { position: absolute; left: calc(var(--md-depth, 0) * 18px); color: var(--ink-2, #5A6478); font-variant-numeric: tabular-nums; }
+.sec-body p.md-quote { border-left: 3px solid rgba(47,107,255,.35); padding-left: 12px; color: var(--ink-2, #5A6478); }
+.sec-body p.md-code { white-space: pre-wrap; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(27,33,48,.05); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }
+.sec-body p.md-code code { font: inherit; background: none; padding: 0; }
+.sec-body code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(27,33,48,.06); padding: 1px 5px; border-radius: 4px; }
+.sec-body p.md-h { font-weight: 650; margin-top: 12px; color: var(--ink, #1B2130); }
+.sec-body p.md-h3, .sec-body p.md-h4 { font-size: 1.06em; }
+.sec-body .md-grid { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, auto)); border: 1px solid rgba(27,33,48,.12); border-radius: 8px; overflow: hidden; font-size: .94em; }
+.sec-body .md-grid > span { padding: 6px 10px; border-bottom: 1px solid rgba(27,33,48,.08); }
+.sec-body .md-grid > .th { font-weight: 600; background: rgba(27,33,48,.04); }
+.sec-body a { color: var(--blue, #2F6BFF); text-decoration: underline; text-underline-offset: 2px; }
+.sec-body .md-img { color: var(--ink-3, #8F98AB); font-style: italic; }
+.sec-body del { color: var(--ink-3, #8F98AB); }
+.sec-body p.md-li, .sec-body p.md-ol { margin-bottom: 3px; }
+.sec-body p:is(.md-li, .md-ol):has(+ p:not(.md-li, .md-ol)) { margin-bottom: 10px; }
+.sec-body p.md-ol { padding-left: calc(24px + var(--md-depth, 0) * 18px); }
+.sec-body p.md-code, .sec-body p.md-table { max-width: none; }

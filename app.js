@@ -296,7 +296,7 @@
   function setCollapsed(on) { state.collapsed = on; $('.main').classList.toggle('collapsed', on); $('#rail').hidden = !on; renderRail(); }
   function renderRail() {
     if (!state.collapsed || !state.me) return;
-    $('#rail').innerHTML = `<button class="iconbtn sm" data-collapse title="${t('expand')}">${icon('panel')}</button><span class="rail-agent" data-status="${state.agentStatus}">${avatar('agent', '', state.agentStatus)}<i class="dot"></i></span>${avatar(ME())}`;
+    patch($('#rail'), `<button class="iconbtn sm" data-collapse title="${t('expand')}">${icon('panel')}</button><span class="rail-agent" data-status="${state.agentStatus}">${avatar('agent', '', state.agentStatus)}<i class="dot"></i></span>${avatar(ME())}`);
   }
   function diffMini(c) {
     const rows = Diff.lineDiff(c.prev, c.next);
@@ -415,10 +415,10 @@
     const title = (state.room && state.room.title) || DOC.title;
     const pageCount = documentPages().length;
     state.page = Math.min(state.page, pageCount);
-    v.innerHTML = `<span class="name">${esc(title)} · ${t('spec')}</span><span class="spacer"></span>
+    patch(v, `<span class="name">${esc(title)} · ${t('spec')}</span><span class="spacer"></span>
       <span class="grp export"><button data-export-menu aria-expanded="${!!state.exportOpen}">${t('export_btn')}</button>${state.exportOpen ? `<div class="export-menu">${window.RelayExport.FORMATS.map((f) => `<button type="button" data-export="${f}">${esc(t('export_' + f))}</button>`).join('')}</div>` : ''}</span>
       <span class="grp">${pageCount > 1 ? `<button data-page="-1" aria-label="${t('prev_page')}" ${state.page === 1 ? 'disabled' : ''}>${icon('back')}</button>` : ''}<span class="mono" id="pageCount">${state.page} / ${pageCount}</span>${pageCount > 1 ? `<button data-page="1" aria-label="${t('next_page')}" ${state.page === pageCount ? 'disabled' : ''}>${icon('next')}</button>` : ''}</span>
-      <span class="grp"><button data-zoom="-10" aria-label="${t('zoom_out')}" ${state.zoom <= 80 ? 'disabled' : ''}>${icon('minus')}</button><span class="mono">${state.zoom}%</span><button data-zoom="10" aria-label="${t('zoom_in')}" ${state.zoom >= 130 ? 'disabled' : ''}>${icon('plus')}</button></span>`;
+      <span class="grp"><button data-zoom="-10" aria-label="${t('zoom_out')}" ${state.zoom <= 80 ? 'disabled' : ''}>${icon('minus')}</button><span class="mono">${state.zoom}%</span><button data-zoom="10" aria-label="${t('zoom_in')}" ${state.zoom >= 130 ? 'disabled' : ''}>${icon('plus')}</button></span>`);
   }
   function gotoPage(n) {
     const page = paperElements()[n - 1];
@@ -481,7 +481,8 @@
     const el = $(`.sec[data-id="${id}"]`); const sec = secById(id);
     if (!el || !sec || state.animating || state.myEdit === id) return renderDoc();
     const tmp = document.createElement('div'); tmp.innerHTML = renderSection(sec).trim();
-    el.replaceWith(tmp.firstElementChild);
+    if (window.morphdom) window.morphdom(el, tmp.firstElementChild, { onBeforeElUpdated: (from, to) => !from.isEqualNode(to) });
+    else el.replaceWith(tmp.firstElementChild);
     renderReadingAvatars();
   }
   function renderSection(sec) {
@@ -530,17 +531,17 @@
   /* Someone else's unsaved edit, with changed lines tinted. */
   function draftHtml(sec, by) {
     const d = draftOf(sec.id) || sec.paras;
-    return d.map((p) => `<p class="${sec.steps ? 'step' : ''} ${sec.paras.includes(p) ? '' : 'draft-line'}" style="--c:${member(by).color}">${esc(p)}</p>`).join('');
+    return d.map((p) => { const b = window.RelayMarkdown.block(p); return `<p class="${sec.steps ? 'step' : ''} ${b.cls} ${sec.paras.includes(p) ? '' : 'draft-line'}" style="--c:${member(by).color};${b.style || ''}">${b.html}</p>`; }).join('');
   }
   function patchDraft(sid) {
     const el = $(`.sec[data-id="${sid}"] .sec-body`); const by = humanEditing(sid);
     if (!el || !by || state.myEdit === sid) return;
     const fn = el.querySelector('p.fn'); el.innerHTML = draftHtml(secById(sid), by) + (fn ? fn.outerHTML : '');
   }
+  /* one paragraph, with its light Markdown (markdown.js): lists, quotes, code, tables, sub-headings, **bold**, links */
   function para(text, sec, hl = false) {
-    const m = text.match(/^([^:]{2,24}):\s(.*)$/);
-    const inner = m ? `<span class="lbl">${esc(m[1])}:</span> ${esc(m[2])}` : esc(text);
-    return `<p class="${sec.steps ? 'step' : ''} ${hl ? 'hl' : ''}">${hl ? `<mark>${inner}</mark>` : inner}</p>`;
+    const b = window.RelayMarkdown.block(text);
+    return `<p class="${sec.steps ? 'step' : ''} ${b.cls} ${hl ? 'hl' : ''}"${b.style ? ` style="${b.style}"` : ''}>${hl ? `<mark>${b.html}</mark>` : b.html}</p>`;
   }
   function sinceSeen(sectionId) {
     const list = changesOf(sectionId); const seenKey = JSON.stringify(state.lastSeen[sectionId]);
@@ -585,7 +586,7 @@
     }
     $$('#docPane [data-readers]').forEach((el) => {
       const readers = [...(reading.get(el.dataset.readers) || [])];
-      const html = readers.map((id) => avatar(id)).join(''); if (readersHtml.get(el) !== html) { readersHtml.set(el, html); el.innerHTML = html; }
+      const html = readers.map((id) => avatar(id)).join(''); if (readersHtml.get(el) !== html) { readersHtml.set(el, html); patch(el, html); }
     });
   }
 
@@ -644,7 +645,7 @@
   const ago = (mins) => mins < 1 ? t('ago_now') : mins < 60 ? t('ago_min', { n: Math.round(mins) }) : mins < 1440 ? t('ago_h', { n: Math.round(mins / 60) }) : t('ago_d', { n: Math.round(mins / 1440) });
   function renderHome() {
     const shared = { id: 'onboarding', title: DOC.title, accent: '#2F6BFF', live: true };
-    $('#home').innerHTML = `
+    patch($('#home'), `
       <div class="home-main">
         <div class="home-h"><h1>${t('home_title')}</h1><button class="btn primary" data-add-issue>${icon('plus')}${t('add_issue')}</button></div>
         <div class="units">
@@ -657,7 +658,7 @@
               ${u.editedMin === undefined ? '' : `<span class="u-meta">${ago(u.editedMin)}</span>`}
             </button>`; }).join('')}
         </div>
-      </div>`;
+      </div>`);
   }
   function openIssueModal() {
     $('#modalRoot').innerHTML = `<div class="overlay" data-overlay><form class="modal issue" id="issueForm" role="dialog" aria-modal="true" aria-labelledby="iTitle">
@@ -714,11 +715,14 @@
 
   /* imported documents come from the database, so every browser sees the same list and the same links */
   const ACCENTS = ['#2F6BFF', '#7C5CFF', '#16A26A', '#D4860A', '#D9503B', '#0EA5A4'];
-  let libraryKey = '';
+  let libraryKey = ''; let libraryLoaded = false;
   async function loadLibrary() {
     if (!Store.configured()) return;
-    let rows; try { rows = await Store.importedRooms(); } catch (e) { return; }
+    let rows; try { rows = await Store.importedRooms(); } catch (e) { rows = null; }
+    const first = !libraryLoaded; libraryLoaded = true;
+    if (!rows) { if (first && state.view === 'home') renderHome(); return; }
     const key = JSON.stringify(rows.map((r) => [r.id, r.title]));
+    if (first) libraryKey = '';
     state.importedRooms = rows.map((r, i) => ({ id: `room-${r.id}`, roomId: r.id, title: r.title, editedMin: (Date.now() - new Date(r.created_at)) / 60000, accent: ACCENTS[i % ACCENTS.length], members: [] }));
     if (key !== libraryKey) { libraryKey = key; if (state.view === 'home') renderHome(); }
   }
@@ -927,10 +931,23 @@
     $$('.work-only').forEach((el) => { el.hidden = v !== 'doc'; });
     $$('.home-only').forEach((el) => { el.hidden = v !== 'home'; });
     document.body.classList.toggle('on-home', v === 'home');
-    if (v === 'home') { closeDiscussionNotice(); Store.setPresence({ sectionId: null }); renderHome(); loadLibrary(); return; }
+    if (v === 'home') {
+      closeDiscussionNotice(); Store.setPresence({ sectionId: null });
+      if (libraryLoaded) renderHome();   // the first time, wait for the list so the cards do not jump in afterwards
+      else setTimeout(() => { if (!libraryLoaded && state.view === 'home') { libraryLoaded = true; renderHome(); } }, 1500);
+      loadLibrary(); return;
+    }
     Store.setPresence({ private: state.myPrivate });
     renderPresence(); renderChatHead(); renderComposer(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
     setTimeout(trackMySection, 600);
+  }
+  /* a room URL while we still check the nickname and load the room: the document frame, not the library */
+  function showShell() {
+    state.view = 'loading';
+    $('#home').hidden = true; $('.main').hidden = false;
+    $$('.work-only, .home-only').forEach((el) => { el.hidden = true; });
+    document.body.classList.remove('on-home');
+    $('#docPane').innerHTML = `<div class="paper-wrap"><article class="paper loading" aria-busy="true"><div class="sk w50"></div><div class="sk"></div><div class="sk"></div><div class="sk w80"></div><div class="sk w30"></div><div class="sk"></div><div class="sk w70"></div></article></div>`;
   }
   let toastTimer;
   function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 2200); }
@@ -1049,11 +1066,13 @@
   $('[data-close-notice]').setAttribute('aria-label', t('dismiss_notice'));
   $('#tabDoc').firstChild.textContent = t('tab_doc') + ' '; $('#tabDisc').firstChild.textContent = t('tab_disc') + ' '; $('#tabLog').firstChild.textContent = t('tab_log') + ' ';
   $('.send').setAttribute('aria-label', t('send'));
+  ['img/agent-basic.png', 'img/agent-working.png', 'img/agent-waiting.png'].forEach((src) => { const im = new Image(); im.src = src; });
   setAgent('idle', t('agent_idle'));
   loadModels();
   (async () => {
     try { ['relay.private', 'relay.importedRooms'].concat(Object.keys(localStorage).filter((k) => k.startsWith('relay.guide.'))).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* old keys from earlier builds */ }
-    showView('home');
+    if (roomFromPath()) showShell(); else showView('home');
+    document.documentElement.classList.add('ready');
     if (!Store.configured()) return toast(t('land_err_conf'));
     const saved = loadMe();
     if (!saved) { forgetMe(); booted = true; return openNameModal(); }

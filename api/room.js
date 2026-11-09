@@ -4,30 +4,12 @@
    An empty request starts a legacy demo; { document } creates a blank, template, or imported document. */
 import { db, handler, newId, shortId, uuid } from './_lib.js';
 import { DOC_TITLE, SECTIONS, HISTORY } from './_seed.js';
+import { importSections as parseSections } from './_import.js';
 
 const MAX_DOCUMENT = 30000;
 
-function importSections({ text, markdown }) {
-  const sections = [];
-  let title = 'Document';
-  let lines = [];
-  const finish = () => {
-    const paras = (markdown ? lines.join('\n').split(/\n[ \t]*\n/) : lines).flatMap((block) => {
-      const paragraph = block.replace(/\s+/g, ' ').trim();
-      return paragraph.match(/.{1,600}(?:\s|$)|.{1,600}/gu)?.map((part) => part.trim()).filter(Boolean) || [];
-    });
-    if (paras.length) {
-      const num = sections.length + 1;
-      sections.push({ id: `import-${num}`, num, title, paras });
-    }
-    lines = [];
-  };
-  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
-    const heading = markdown && /^#{1,6}\s+(.+)$/.exec(line);
-    if (heading) { finish(); title = heading[1].trim().slice(0, 120); }
-    else lines.push(line);
-  }
-  finish();
+function importSections({ text, markdown, title }) {
+  const sections = parseSections({ text, markdown, title });
   return sections.length ? withDecisionLog(sections) : sections;
 }
 
@@ -110,7 +92,7 @@ export default handler(async ({ document, shared }) => {
   const text = typeof document.text === 'string' ? document.text.trim() : '';
   if (!text || text.includes('\0')) return invalid;
   if (text.length > MAX_DOCUMENT) return { status: 413, body: { error: 'document_too_large' } };
-  const sections = importSections({ text, markdown: document.markdown === true });
+  const sections = importSections({ text, markdown: document.markdown === true, title });
   if (!sections.length) return invalid;
   return { roomId: await createRoom(db, { title, sections }) };
 });
