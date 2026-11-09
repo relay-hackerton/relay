@@ -9,7 +9,7 @@ async function rest(path, { method = 'GET', body, prefer } = {}) {
   const r = await fetch(`${SB_URL()}/rest/v1/${path}`, {
     method,
     headers: {
-      apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json',
+      apikey: SB_KEY(), ...(SB_KEY().startsWith('eyJ') ? { Authorization: `Bearer ${SB_KEY()}` } : {}), 'Content-Type': 'application/json',   // new sb_secret_ keys go in apikey only
       ...(prefer ? { Prefer: prefer } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),

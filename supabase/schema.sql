@@ -139,6 +139,8 @@ create policy vote_up on votes for update to anon, authenticated
 
 revoke execute on function acquire_agent(text, text, text, text) from anon, authenticated, public;
 revoke execute on function release_agent(text, text) from anon, authenticated, public;
+grant execute on function acquire_agent(text, text, text, text) to service_role;
+grant execute on function release_agent(text, text) to service_role;
 
 -- ---------- realtime ----------
 alter table rooms       replica identity full;
