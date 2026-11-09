@@ -752,3 +752,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .composer.busy .box { opacity: .75; }
 .msg .bub .note { margin-top: 8px; }
 .private-note p { margin: 0; }
+.export { position: relative; margin-left: 8px; }
+.export-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; display: grid; padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-pop); }
+.export-menu button { text-align: left; padding: 8px 10px; border-radius: var(--r-sm); font-size: 13px; color: var(--ink); }
+.export-menu button:hover { background: rgba(47,107,255,.07); color: var(--blue); }

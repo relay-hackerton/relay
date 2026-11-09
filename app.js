@@ -341,6 +341,15 @@
     ['doc', 'disc', 'log'].forEach((x) => { $(`#tab${x[0].toUpperCase() + x.slice(1)}`).setAttribute('aria-selected', x === tab); $(`#${x}Pane`).hidden = x !== tab; });
     if (tab === 'doc') renderCursors();
   }
+  function renderExport() {
+    const box = $('#exportBox'); if (!box) return;
+    box.innerHTML = `<button class="btn ghost sm" data-export-menu aria-expanded="${!!state.exportOpen}">${t('export_btn')}</button>${state.exportOpen ? `<div class="export-menu">${window.RelayExport.FORMATS.map((f) => `<button type="button" data-export="${f}">${esc(t('export_' + f))}</button>`).join('')}</div>` : ''}`;
+  }
+  function doExport(format) {
+    state.exportOpen = false; renderExport();
+    const ok = window.RelayExport.download(format, { roomId: state.roomId, title: (state.room && state.room.title) || DOC.title, lede: DOC.lede, sections: state.sections, changes: state.changeList, discussions: state.discRows });
+    if (ok === false) toast(t('export_blocked'));
+  }
   function renderDocMeta() { $('#tabsHint').innerHTML = `<span class="mono">${esc(DOC.version)}</span> · ${t('last_applied')} <span class="mono">${fmt(latestChangeTime())}</span>`; }
   function renderTabs() {
     $('#docCount').textContent = state.unread.size; $('#docCount').hidden = state.unread.size === 0; $('#docCount').classList.toggle('hot', state.unread.size > 0);
@@ -593,7 +602,7 @@
     $$('.work-only').forEach((el) => { el.hidden = v !== 'doc'; });
     document.body.classList.toggle('on-home', v === 'landing');
     if (v === 'landing') return renderLanding();
-    renderPresence(); renderChatHead(); renderComposer(); renderGuide(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); setTab('doc'); renderAgent(); renderDoc();
+    renderPresence(); renderChatHead(); renderComposer(); renderGuide(); renderChat(); P.renderDisc(); renderLog(); renderTabs(); renderChips(); renderCtx(); renderHeaderActions(); renderExport(); setTab('doc'); renderAgent(); renderDoc();
     setTimeout(trackMySection, 600);
   }
   let toastTimer;
@@ -610,8 +619,8 @@
 
   /* ---------- events (delegated) ---------- */
   document.addEventListener('click', (e) => {
-    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-invite],[data-avatar],[data-new-room],[data-suggest],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],.chip,.tab');
-    if (!t0) { if (!e.target.closest('.pop') && state.openPop) { state.openPop = null; renderDoc(); } return; }
+    const t0 = e.target.closest('[data-goto],[data-goto-diff],[data-session],[data-disc],[data-pop],[data-diff],[data-ask],[data-toggle],[data-ldiff],[data-vote],[data-resolve],[data-user],[data-collapse],[data-ctx-clear],[data-home],[data-lang],[data-bot],[data-invite],[data-avatar],[data-new-room],[data-suggest],[data-tab-go],[data-edit],[data-save-edit],[data-cancel-edit],[data-export-menu],[data-export],.chip,.tab');
+    if (!t0) { if (state.exportOpen) { state.exportOpen = false; renderExport(); } if (!e.target.closest('.pop') && state.openPop) { state.openPop = null; renderDoc(); } return; }
     const d = t0.dataset;
     if (t0.classList.contains('tab')) { const tab = t0.id.replace('tab', '').toLowerCase(); setTab(tab); if (tab === 'disc') P.renderDisc(); return; }
     if (t0.hasAttribute('data-suggest')) return send(t('guide_suggest'));
@@ -638,6 +647,8 @@
     }
     if (d.diff) { state.openPop = null; const bc = changeById(d.base); const base = d.base === 'seen' ? state.popMeta && state.popMeta.base : bc && bc.prev; state.showDiff[d.diff] = { label: d.label, base: base || latestChange(d.diff).prev }; return renderDoc(); }
     if (d.ask) { state.openPop = null; renderDoc(); if (state.viewing !== ME()) viewSession(ME()); state.ctx = d.ask; renderCtx(); $('#input').focus(); return; }
+    if (t0.hasAttribute('data-export-menu')) { state.exportOpen = !state.exportOpen; return renderExport(); }
+    if (d.export) return doExport(d.export);
     if (d.edit) return startMyEdit(d.edit);
     if (t0.hasAttribute('data-save-edit')) return saveMyEdit();
     if (t0.hasAttribute('data-cancel-edit')) return cancelMyEdit();
