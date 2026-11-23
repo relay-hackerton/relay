@@ -1,36 +1,37 @@
-/* Seed copied into every new room: the English onboarding spec v0.4, two earlier changes (Minsu, Jieun) and their sessions. */
-export const DOC_TITLE = 'New workspace onboarding proposal';
+/* Seed copied into every new room: the English group ordering proposal v0.4, two earlier changes (Minsu, Jieun) and their sessions.
+   A generic product spec (a food delivery app's group order), so anyone can follow it without context. */
+export const DOC_TITLE = 'Group ordering proposal';
 
-export const INVITE_ORIGINAL = 'Team invite: enter emails to invite teammates. Copying an invite link is also supported.';
+export const PAYMENT_ORIGINAL = 'Payment: the organizer pays the full amount at checkout and collects each person\'s share afterward.';
 
 export const SECTIONS = [
   { id: 's1', num: 1, title: 'Background', paras: [
-    'Of 1,240 new workspaces last quarter, only 31% had a second member join within 7 days. Solo workspaces keep 12% at day 30, a quarter of workspaces with two or more members (54%).',
-    'Onboarding today has four steps: sign up → name the workspace → invite teammates → create the first project. The invite step loses 41%, the most of any step.',
+    'On weekdays, 27% of lunch orders feed three or more people, but one person places the order and pays for everyone. These orders average 4.3 people and $68, and the organizer then chases each share by bank transfer.',
+    'Group ordering today has four steps: collect choices in a group chat → re-type them into one cart → pay for everyone → collect the money. The payment step loses 38% of carts, the most of any step.',
   ] },
   { id: 's2', num: 2, title: 'Goals', paras: [
-    'Raise 7-day activation (second member joins + first task created) from 32% to 45%.',
-    'Cut the median time from sign-up to first task from 2 days 14 hours to under 24 hours.',
-  ], footnote: 'Baselines from the product dashboard, last 30 days.' },
+    'Raise group orders (3+ people) from 27% to 35% of weekday lunch orders.',
+    'Cut the median time from the first item added to the order placed from 14 minutes to under 6 minutes.',
+  ], footnote: 'Baselines from the order dashboard, last 30 days.' },
   { id: 's3', num: 3, title: 'Core features', paras: [
-    'Template pick: default boards and sample tasks per team type (product · marketing · ops).',
-    INVITE_ORIGINAL,
-    'First-task guide: complete a sample task to learn the core actions (assign · change status · comment).',
+    'Shared cart: the organizer shares one link, and everyone adds their own items. Guests can join without installing the app.',
+    PAYMENT_ORIGINAL,
+    'Order deadline: the organizer sets a cut-off time. Items added after it wait for the next order.',
   ] },
   { id: 's4', num: 4, title: 'User flow', steps: true, paras: [
-    'Sign up → pick a template → invite teammates → complete the sample task → create my first task',
-    'Each step must finish within 30 seconds and can be skipped at any point.',
+    'Start a group order → share the link → members add items → cart locks at the deadline → order is placed',
+    'Joining from the link must take under 30 seconds, with no sign-up for guests.',
   ] },
   { id: 's5', num: 5, title: 'Success metrics', page: 2, paras: [
-    '7-day activation 45% (baseline 32%)',
-    'Median time to first task under 24 hours (baseline 2 days 14 hours)',
-    'Invite acceptance rate 65% (baseline 58%) · share of invites that sign up within 7 days',
+    'Group order share of weekday lunch orders 35% (baseline 27%)',
+    'Median time from first item to order under 6 minutes (baseline 14 minutes)',
+    'Group cart completion 80% (baseline 62%) · share of group carts that become an order',
   ] },
   { id: 's6', num: 6, title: 'Timeline', page: 2, paras: [
-    'Design locked week 2 of Nov · build weeks 3–4 of Nov · 10% rollout week 1 of Dec · metrics review week 2 of Dec',
+    'Design locked week 1 of Jan · build weeks 2–4 of Jan · 10% rollout in two cities week 1 of Feb · metrics review week 2 of Feb',
   ] },
   { id: 's7', num: 7, title: 'Roles', page: 2, paras: [
-    'Chaewon: problem definition and onboarding flow design',
+    'Chaewon: problem definition and group order flow design',
     'Minsu: implementation and rollout',
     'Jieun: screen design and usability testing',
     'Hyunwoo: metric design and analysis',
@@ -48,22 +49,22 @@ export const HISTORY = [
     by: { id: 'bot_minsu', name: 'Minsu', avatar: 'p:minsu' }, sectionId: 's2', minutesAgo: 25,
     summary: 'Rewrote both goals as dashboard baselines with numeric targets',
     why: 'Asked to replace "too abstract" goals with current numbers as baselines',
-    prev: ['Make it easy for new users to form a team and reach a first result quickly.', 'Increase onboarding completion.'],
+    prev: ['Make ordering for a group easier.', 'Take the hassle out of collecting money afterward.'],
     messages: [
-      { role: 'user', text: 'Section 2 goals are too abstract. Rewrite them with targets based on the dashboard numbers.' },
-      { role: 'agent', text: "Last 30 days: 7-day activation is 32% and the median time to first task is 2 days 14 hours. I'll use those as baselines and target 45% / under 24 hours, with the source in a footnote." },
+      { role: 'user', text: 'Section 2 goals are too abstract. Rewrite them with targets based on the order dashboard.' },
+      { role: 'agent', text: "Last 30 days: group orders are 27% of weekday lunch orders, and the median time from first item to order is 14 minutes. I'll use those as baselines and target 35% / under 6 minutes, with the source in a footnote." },
       { role: 'user', text: 'Good, do that.' },
       { role: 'agent', text: 'Updated 2. Goals.', applied: true },
     ],
   },
   {
     by: { id: 'bot_jieun', name: 'Jieun', avatar: 'p:jieun' }, sectionId: 's5', minutesAgo: 12,
-    summary: 'Added invite acceptance rate (target 65%, baseline 58%)',
-    why: 'The invite problem is acceptance, not just invite count, so it needs its own metric',
-    prev: ['7-day activation 45% (baseline 32%)', 'Median time to first task under 24 hours (baseline 2 days 14 hours)'],
+    summary: 'Added group cart completion (target 80%, baseline 62%)',
+    why: 'Carts are abandoned at payment, so completion needs its own metric, not just order count',
+    prev: ['Group order share of weekday lunch orders 35% (baseline 27%)', 'Median time from first item to order under 6 minutes (baseline 14 minutes)'],
     messages: [
-      { role: 'user', text: 'Add invite acceptance rate to section 5: the share of invites that sign up within 7 days.' },
-      { role: 'agent', text: "Added. Last month's baseline was 58%, so the target is 65%.", applied: true },
+      { role: 'user', text: 'Add group cart completion to section 5: the share of group carts that become an order.' },
+      { role: 'agent', text: "Added. Last month's baseline was 62%, so the target is 80%.", applied: true },
     ],
   },
 ];
@@ -73,4 +74,4 @@ export const BOTS = {
   jieun: { id: 'bot_jieun', name: 'Jieun', avatar: 'p:jieun' },
   minsu: { id: 'bot_minsu', name: 'Minsu', avatar: 'p:minsu' },
 };
-export const BOT_REQUEST = 'Remove typing from the invite step in section 3: with contacts permission (Google · Slack), auto-invite teammates on the same domain, and let people skip the permission screen. We lose 41% at that step.';
+export const BOT_REQUEST = 'In section 3, stop making the organizer pay for everyone: each person pays their own share when they add items, and the delivery fee is split evenly. We lose 38% of carts at the payment step.';

@@ -15,36 +15,37 @@ window.SEED = (() => {
   };
 
   const DOC_EN = {
-    title: 'New workspace onboarding proposal', version: 'v0.4', footer: 'RELAY · Onboarding proposal',
-    lede: 'A workspace that does not gather a team within 7 days does not survive. We redesign the invite step.',
-    invitePrefix: 'Team invite:', noDecisionPrefix: 'No decisions confirmed yet',
+    title: 'Group ordering proposal', version: 'v0.4', footer: 'RELAY · Group ordering proposal',
+    lede: 'Ordering lunch for a team means one person collects choices, pays for everyone and chases the money. We redesign group ordering around one shared cart.',
+    invitePrefix: 'Payment:', noDecisionPrefix: 'No decisions confirmed yet',
     sections: [
       { id: 's1', num: 1, title: 'Background', paras: [
-        'Of 1,240 new workspaces last quarter, only 31% had a second member join within 7 days. Solo workspaces keep 12% at day 30, a quarter of workspaces with two or more members (54%).',
-        'Onboarding today has four steps: sign up → name the workspace → invite teammates → create the first project. The invite step loses 41%, the most of any step.',
+        'On weekdays, 27% of lunch orders feed three or more people, but one person places the order and pays for everyone. These orders average 4.3 people and $68, and the organizer then chases each share by bank transfer.',
+        'Group ordering today has four steps: collect choices in a group chat → re-type them into one cart → pay for everyone → collect the money. The payment step loses 38% of carts, the most of any step.',
       ]},
       { id: 's2', num: 2, title: 'Goals', paras: [
-        'Raise 7-day activation (second member joins + first task created) from 32% to 45%.',
-        'Cut the median time from sign-up to first task from 2 days 14 hours to under 24 hours.',
-      ], footnote: 'Baselines from the product dashboard, last 30 days.' },
+        'Raise group orders (3+ people) from 27% to 35% of weekday lunch orders.',
+        'Cut the median time from the first item added to the order placed from 14 minutes to under 6 minutes.',
+      ], footnote: 'Baselines from the order dashboard, last 30 days.' },
       { id: 's3', num: 3, title: 'Core features', paras: [
-        'Template pick: default boards and sample tasks per team type (product · marketing · ops).',
-        'Team invite: with contacts permission (Google · Slack), auto-invite members on the same domain. The permission screen can be skipped.',
-        'First-task guide: complete a sample task to learn the core actions (assign · change status · comment).',
+        'Shared cart: the organizer shares one link, and everyone adds their own items. Guests can join without installing the app.',
+        "Payment: the organizer pays the full amount at checkout and collects each person's share afterward.",
+        'Order deadline: the organizer sets a cut-off time. Items added after it wait for the next order.',
       ]},
       { id: 's4', num: 4, title: 'User flow', steps: true, paras: [
-        'Sign up → pick a template → invite teammates → complete the sample task → create my first task',
-        'Each step must finish within 30 seconds and can be skipped at any point.',
+        'Start a group order → share the link → members add items → cart locks at the deadline → order is placed',
+        'Joining from the link must take under 30 seconds, with no sign-up for guests.',
       ]},
       { id: 's5', num: 5, title: 'Success metrics', page: 2, paras: [
-        '7-day activation 45% (baseline 32%)',
-        'Median time to first task under 24 hours (baseline 2 days 14 hours)',
+        'Group order share of weekday lunch orders 35% (baseline 27%)',
+        'Median time from first item to order under 6 minutes (baseline 14 minutes)',
+        'Group cart completion 80% (baseline 62%) · share of group carts that become an order',
       ]},
       { id: 's6', num: 6, title: 'Timeline', page: 2, paras: [
-        'Design locked week 2 of Nov · build weeks 3–4 of Nov · 10% rollout week 1 of Dec · metrics review week 2 of Dec',
+        'Design locked week 1 of Jan · build weeks 2–4 of Jan · 10% rollout in two cities week 1 of Feb · metrics review week 2 of Feb',
       ]},
       { id: 's7', num: 7, title: 'Roles', page: 2, paras: [
-        'Chaewon: problem definition and onboarding flow design',
+        'Chaewon: problem definition and group order flow design',
         'Minsu: implementation and rollout',
         'Jieun: screen design and usability testing',
         'Hyunwoo: metric design and analysis',
@@ -56,36 +57,37 @@ window.SEED = (() => {
     ],
   };
   const DOC_KO = {
-    title: '신규 워크스페이스 온보딩 개선안', version: 'v0.4', footer: 'RELAY · 온보딩 개선안',
-    lede: '첫 7일 안에 팀이 모이지 않으면 워크스페이스는 살아남지 못한다. 초대 단계를 다시 설계한다.',
-    invitePrefix: '팀원 초대:', noDecisionPrefix: '확정된 결정이 아직',
+    title: '함께 주문하기 기획서', version: 'v0.4', footer: 'RELAY · 함께 주문하기 기획서',
+    lede: '팀 점심을 시키면 한 사람이 메뉴를 모으고, 다 같이 계산하고, 돈을 받으러 다닌다. 장바구니 하나를 같이 쓰는 방식으로 단체 주문을 다시 설계한다.',
+    invitePrefix: '결제:', noDecisionPrefix: '확정된 결정이 아직',
     sections: [
       { id: 's1', num: 1, title: '배경', paras: [
-        '지난 분기 신규 워크스페이스 1,240개 중 7일 안에 두 번째 멤버가 들어온 곳은 31%에 그쳤다. 혼자 쓰는 워크스페이스의 30일 유지율은 12%로, 2명 이상인 곳(54%)의 4분의 1 수준이다.',
-        '현재 온보딩은 가입 → 워크스페이스 이름 → 팀원 초대 → 첫 프로젝트 생성의 4단계이며, 팀원 초대 단계에서 41%가 이탈해 가장 크다.',
+        '평일 점심 주문의 27%는 3명 이상이 먹는 주문인데, 한 사람이 주문하고 전부 결제한다. 이런 주문은 평균 4.3명, 68달러이고, 주문한 사람은 이후 각자의 몫을 계좌이체로 받으러 다닌다.',
+        '지금 단체 주문은 단톡방에서 메뉴 모으기 → 장바구니에 다시 입력 → 전원 몫 결제 → 돈 받기의 4단계이며, 결제 단계에서 장바구니의 38%가 이탈해 가장 크다.',
       ]},
       { id: 's2', num: 2, title: '목표', paras: [
-        '7일 활성화율(두 번째 멤버 합류 + 첫 작업 생성)을 32%에서 45%로 올린다.',
-        '가입 후 첫 작업 생성까지 걸리는 시간의 중앙값을 2일 14시간에서 24시간 이내로 줄인다.',
-      ], footnote: '기준선은 최근 30일 제품 대시보드 기준.' },
+        '평일 점심 주문 중 단체 주문(3명 이상) 비중을 27%에서 35%로 올린다.',
+        '첫 메뉴를 담은 뒤 주문 완료까지 걸리는 시간의 중앙값을 14분에서 6분 이내로 줄인다.',
+      ], footnote: '기준선은 최근 30일 주문 대시보드 기준.' },
       { id: 's3', num: 3, title: '핵심 기능', paras: [
-        '템플릿 선택: 팀 유형(제품·마케팅·운영)별 기본 보드와 샘플 작업을 제공한다.',
-        '팀원 초대: 연락처(Google·Slack) 권한을 받아 같은 도메인의 멤버를 자동으로 초대한다. 권한 화면은 건너뛸 수 있다.',
-        '첫 작업 안내: 샘플 작업을 완료하는 흐름으로 핵심 동작(담당자 지정·상태 변경·댓글)을 익힌다.',
+        '공유 장바구니: 주문자가 링크 하나를 공유하면 각자 자기 메뉴를 담는다. 게스트는 앱 설치 없이 참여할 수 있다.',
+        '결제: 주문자가 결제 단계에서 전체 금액을 결제하고, 각자의 몫은 나중에 받는다.',
+        '주문 마감: 주문자가 마감 시각을 정한다. 마감 뒤에 담은 메뉴는 다음 주문으로 넘어간다.',
       ]},
       { id: 's4', num: 4, title: '사용자 흐름', steps: true, paras: [
-        '가입 → 템플릿 선택 → 팀원 초대 → 샘플 작업 완료 → 내 첫 작업 만들기',
-        '각 단계는 30초 안에 끝나야 하며, 어느 단계에서든 건너뛸 수 있다.',
+        '단체 주문 시작 → 링크 공유 → 멤버가 메뉴 담기 → 마감 시 장바구니 잠금 → 주문 완료',
+        '링크로 참여하는 데 30초를 넘기지 않아야 하고, 게스트는 가입 없이 참여한다.',
       ]},
       { id: 's5', num: 5, title: '성공 지표', page: 2, paras: [
-        '7일 활성화율 45% (기준 32%)',
-        '첫 작업 생성까지 중앙값 24시간 이내 (기준 2일 14시간)',
+        '평일 점심 주문 중 단체 주문 비중 35% (기준 27%)',
+        '첫 메뉴부터 주문 완료까지 중앙값 6분 이내 (기준 14분)',
+        '단체 장바구니 완료율 80% (기준 62%) · 주문으로 이어진 단체 장바구니 비율',
       ]},
       { id: 's6', num: 6, title: '일정', page: 2, paras: [
-        '11월 2주 설계 확정 · 11월 3~4주 구현 · 12월 1주 10% 롤아웃 · 12월 2주 지표 검토',
+        '1월 1주 설계 확정 · 1월 2~4주 구현 · 2월 1주 두 개 도시 10% 롤아웃 · 2월 2주 지표 검토',
       ]},
       { id: 's7', num: 7, title: '역할', page: 2, paras: [
-        '채원: 문제 정의와 온보딩 흐름 설계',
+        '채원: 문제 정의와 단체 주문 흐름 설계',
         '민수: 구현과 롤아웃 운영',
         '지은: 화면 설계와 사용성 검증',
         '현우: 지표 설계와 분석',
