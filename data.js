@@ -14,90 +14,48 @@ window.SEED = (() => {
                photo: 'img/agent-basic.png', photos: { idle: 'img/agent-basic.png', working: 'img/agent-working.png', waiting: 'img/agent-waiting.png' } },
   };
 
-  const DOC_EN = {
-    title: 'Group ordering proposal', version: 'v0.4', footer: 'RELAY · Group ordering proposal',
-    lede: 'Ordering lunch for a team means one person collects choices, pays for everyone and chases the money. We redesign group ordering around one shared cart.',
-    invitePrefix: 'Payment:', noDecisionPrefix: 'No decisions confirmed yet',
+  /* The built-in default document (same as api/_seed.js). It is written in Korean, so both languages show the same body. */
+  const DOC_KO = {
+    title: '결제 API 설계', version: 'v0.4', footer: 'RELAY · 결제 API 설계', lede: '',
+    invitePrefix: '타임아웃:', noDecisionPrefix: 'No decisions confirmed yet',
     sections: [
-      { id: 's1', num: 1, title: 'Background', paras: [
-        'On weekdays, 27% of lunch orders feed three or more people, but one person places the order and pays for everyone. These orders average 4.3 people and $68, and the organizer then chases each share by bank transfer.',
-        'Group ordering today has four steps: collect choices in a group chat → re-type them into one cart → pay for everyone → collect the money. The payment step loses 38% of carts, the most of any step.',
+      { id: 's1', num: 1, title: '먼저 해 볼 것', paras: [
+        '> 릴레이 체험용 문서예요. 팀이 에이전트 하나로 이 문서를 함께 고쳤고, 그 과정이 그대로 남아 있어요.',
+        '- 「타임아웃과 재시도」에서 이름표가 붙은 줄을 눌러 보세요. 누가, 왜 바꿨는지와 그때 에이전트와 나눈 대화가 보여요.',
+        '- 토론 탭을 열어 보세요. 두 사람의 수정이 엇갈렸을 때 팀이 어떻게 정했는지 남아 있어요.',
+        '- 에이전트에게 직접 물어보세요. 예: 타임아웃은 왜 지금 값이 됐어?',
       ]},
-      { id: 's2', num: 2, title: 'Goals', paras: [
-        'Raise group orders (3+ people) from 27% to 35% of weekday lunch orders.',
-        'Cut the median time from the first item added to the order placed from 14 minutes to under 6 minutes.',
-      ], footnote: 'Baselines from the order dashboard, last 30 days.' },
-      { id: 's3', num: 3, title: 'Core features', paras: [
-        'Shared cart: the organizer shares one link, and everyone adds their own items. Guests can join without installing the app.',
-        "Payment: the organizer pays the full amount at checkout and collects each person's share afterward.",
-        'Order deadline: the organizer sets a cut-off time. Items added after it wait for the next order.',
+      { id: 's2', num: 2, title: '배경', paras: [
+        '결제 버튼을 누른 뒤 결과가 나올 때까지 화면이 멈춰 있는 시간이 깁니다. 기다리다 떠나는 사용자가 많습니다.',
+        '결제 대기 중 이탈률: 18%',
+        '국내 카드 평균 승인 시간: 2초',
+        '해외 카드 평균 승인 시간: 7초',
       ]},
-      { id: 's4', num: 4, title: 'User flow', steps: true, paras: [
-        'Start a group order → share the link → members add items → cart locks at the deadline → order is placed',
-        'Joining from the link must take under 30 seconds, with no sign-up for guests.',
+      { id: 's3', num: 3, title: '결제 요청 흐름', paras: [
+        '1. 사용자가 결제 버튼을 누른다.',
+        '2. 서버가 결제 대행사에 승인을 요청한다.',
+        '3. 응답이 오면 결과 화면을 보여 준다.',
+        '4. 정해진 시간 안에 응답이 없으면 실패로 처리하고 안내한다.',
       ]},
-      { id: 's5', num: 5, title: 'Success metrics', page: 2, paras: [
-        'Group order share of weekday lunch orders 35% (baseline 27%)',
-        'Median time from first item to order under 6 minutes (baseline 14 minutes)',
-        'Group cart completion 80% (baseline 62%) · share of group carts that become an order',
+      { id: 's4', num: 4, title: '타임아웃과 재시도', paras: [
+        '타임아웃: 5초',
+        '재시도: 하지 않음',
+        '중복 결제 방지: 같은 주문 번호로 온 요청은 한 번만 승인한다.',
       ]},
-      { id: 's6', num: 6, title: 'Timeline', page: 2, paras: [
-        'Design locked week 1 of Jan · build weeks 2–4 of Jan · 10% rollout in two cities week 1 of Feb · metrics review week 2 of Feb',
+      { id: 's5', num: 5, title: '실패했을 때 안내', paras: [
+        '사용자에게 보이는 문구: 결제가 완료되지 않았어요. 다시 시도해 주세요.',
+        '카드에서 돈이 빠져나갔는지 불안해하지 않도록, 승인되지 않았다는 사실을 함께 알려 준다.',
       ]},
-      { id: 's7', num: 7, title: 'Roles', page: 2, paras: [
-        'Chaewon: problem definition and group order flow design',
-        'Minsu: implementation and rollout',
-        'Jieun: screen design and usability testing',
-        'Hyunwoo: metric design and analysis',
-        'Agent: applies teammate sessions and discussion results to this document',
+      { id: 's6', num: 6, title: '성공 기준', paras: [
+        '- 결제 대기 중 이탈률을 18%에서 10% 아래로 낮춘다.',
+        '- 결제 성공률은 지금의 96%를 유지한다.',
       ]},
-      { id: 's8', num: 8, title: 'Decision log', page: 2, paras: [
+      { id: 's8', num: 7, title: 'Decision log', page: 2, paras: [
         'No decisions confirmed yet. Topics under discussion are not applied to the body until concluded.',
       ]},
     ],
   };
-  const DOC_KO = {
-    title: '함께 주문하기 기획서', version: 'v0.4', footer: 'RELAY · 함께 주문하기 기획서',
-    lede: '팀 점심을 시키면 한 사람이 메뉴를 모으고, 다 같이 계산하고, 돈을 받으러 다닌다. 장바구니 하나를 같이 쓰는 방식으로 단체 주문을 다시 설계한다.',
-    invitePrefix: '결제:', noDecisionPrefix: '확정된 결정이 아직',
-    sections: [
-      { id: 's1', num: 1, title: '배경', paras: [
-        '평일 점심 주문의 27%는 3명 이상이 먹는 주문인데, 한 사람이 주문하고 전부 결제한다. 이런 주문은 평균 4.3명, 68달러이고, 주문한 사람은 이후 각자의 몫을 계좌이체로 받으러 다닌다.',
-        '지금 단체 주문은 단톡방에서 메뉴 모으기 → 장바구니에 다시 입력 → 전원 몫 결제 → 돈 받기의 4단계이며, 결제 단계에서 장바구니의 38%가 이탈해 가장 크다.',
-      ]},
-      { id: 's2', num: 2, title: '목표', paras: [
-        '평일 점심 주문 중 단체 주문(3명 이상) 비중을 27%에서 35%로 올린다.',
-        '첫 메뉴를 담은 뒤 주문 완료까지 걸리는 시간의 중앙값을 14분에서 6분 이내로 줄인다.',
-      ], footnote: '기준선은 최근 30일 주문 대시보드 기준.' },
-      { id: 's3', num: 3, title: '핵심 기능', paras: [
-        '공유 장바구니: 주문자가 링크 하나를 공유하면 각자 자기 메뉴를 담는다. 게스트는 앱 설치 없이 참여할 수 있다.',
-        '결제: 주문자가 결제 단계에서 전체 금액을 결제하고, 각자의 몫은 나중에 받는다.',
-        '주문 마감: 주문자가 마감 시각을 정한다. 마감 뒤에 담은 메뉴는 다음 주문으로 넘어간다.',
-      ]},
-      { id: 's4', num: 4, title: '사용자 흐름', steps: true, paras: [
-        '단체 주문 시작 → 링크 공유 → 멤버가 메뉴 담기 → 마감 시 장바구니 잠금 → 주문 완료',
-        '링크로 참여하는 데 30초를 넘기지 않아야 하고, 게스트는 가입 없이 참여한다.',
-      ]},
-      { id: 's5', num: 5, title: '성공 지표', page: 2, paras: [
-        '평일 점심 주문 중 단체 주문 비중 35% (기준 27%)',
-        '첫 메뉴부터 주문 완료까지 중앙값 6분 이내 (기준 14분)',
-        '단체 장바구니 완료율 80% (기준 62%) · 주문으로 이어진 단체 장바구니 비율',
-      ]},
-      { id: 's6', num: 6, title: '일정', page: 2, paras: [
-        '1월 1주 설계 확정 · 1월 2~4주 구현 · 2월 1주 두 개 도시 10% 롤아웃 · 2월 2주 지표 검토',
-      ]},
-      { id: 's7', num: 7, title: '역할', page: 2, paras: [
-        '채원: 문제 정의와 단체 주문 흐름 설계',
-        '민수: 구현과 롤아웃 운영',
-        '지은: 화면 설계와 사용성 검증',
-        '현우: 지표 설계와 분석',
-        '에이전트: 팀원 세션과 토론 결론을 이 문서에 반영',
-      ]},
-      { id: 's8', num: 8, title: '결정 기록', page: 2, paras: [
-        '확정된 결정이 아직 없다. 토론 중인 내용은 결론이 나기 전까지 본문에 반영하지 않는다.',
-      ]},
-    ],
-  };
+  const DOC_EN = DOC_KO;
   const DOC = pick(DOC_EN, DOC_KO);
 
   /* Sessions other members already had with the agent */

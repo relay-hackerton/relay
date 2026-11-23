@@ -16,14 +16,14 @@ const { hasHangul } = await import('../api/_lib.js');
 
 const CASES = [
   { lang: 'en', text: 'What changed in the last 30 minutes?', expect: { action: 'none' } },
-  { lang: 'en', text: 'Section 2 goals: add a goal about group cart completion.', expect: { action: 'edit', section: 's2' } },
-  { lang: 'en', text: 'Make the timeline in section 6 a two-stage rollout: 5% first, then 25% a week later.', expect: { action: 'edit', section: 's6' } },
-  { lang: 'en', text: 'Shorten the background in section 1 to one paragraph.', expect: { action: 'edit', section: 's1' } },
-  { lang: 'en', text: 'Add a usability test step to the user flow.', expect: { action: 'edit', section: 's4' } },
-  { lang: 'en', text: 'bot', bot: true, expect: { action: 'edit', section: 's3', contains: /own share|each|split/i } },
-  { lang: 'en', text: 'Switch payment in section 3 back to the organizer paying for everyone.', afterBot: true, expect: { action: 'edit', section: 's3', conflict: true } },
-  { lang: 'ko', text: '3번 결제를 주문자가 한 번에 결제하는 방식으로 되돌려줘', afterBot: true, expect: { action: 'edit', section: 's3', conflict: true } },
-  { lang: 'ko', text: '5번 지표에 재주문율을 추가해줘', expect: { action: 'edit', section: 's5' } },
+  { lang: 'en', text: 'Section 6: add a goal about the overseas card success rate.', expect: { action: 'edit', section: 's6' } },
+  { lang: 'en', text: 'In section 5, make the failure message also say that the card was not charged.', expect: { action: 'edit', section: 's5' } },
+  { lang: 'en', text: 'Shorten the background in section 2 to two lines.', expect: { action: 'edit', section: 's2' } },
+  { lang: 'en', text: 'Add a step to the payment flow in section 3: show a spinner with the waiting time.', expect: { action: 'edit', section: 's3' } },
+  { lang: 'en', text: 'bot', bot: true, expect: { action: 'edit', section: 's4', contains: /15/ } },
+  { lang: 'en', text: 'Set the timeout in section 4 back to 5 seconds.', afterBot: true, expect: { action: 'edit', section: 's4', conflict: true } },
+  { lang: 'ko', text: '4번 타임아웃을 다시 5초로 되돌려줘', afterBot: true, expect: { action: 'edit', section: 's4', conflict: true } },
+  { lang: 'ko', text: '6번 성공 기준에 해외 카드 결제 성공률을 추가해줘', expect: { action: 'edit', section: 's6' } },
   { lang: 'ko', text: '지금까지 뭐가 바뀌었는지 요약해줘', expect: { action: 'none' } },
 ];
 

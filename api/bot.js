@@ -1,7 +1,7 @@
 /* POST /api/bot { roomId, lang } → { ok }  "Bring in a teammate": Jieun sends a fixed request through the real agent pipeline. */
 import { db as realDb, handler, uuid } from './_lib.js';
 import { runAgent } from './_agent.js';
-import { BOTS, BOT_REQUEST } from './_seed.js';
+import { BOTS, BOT_REQUEST, BOT_SECTION } from './_seed.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -13,7 +13,7 @@ export async function runBot(input, deps = {}) {
   if (!room) return { status: 404, body: { error: 'room not found' } };
   const bot = BOTS.jieun;
   if (room.bots_on) {
-    const done = await d.select('changes', `room_id=${d.eq(roomId)}&by_id=${d.eq(bot.id)}&section_id=eq.s3&select=id`);
+    const done = await d.select('changes', `room_id=${d.eq(roomId)}&by_id=${d.eq(bot.id)}&section_id=eq.${BOT_SECTION}&select=id`);
     if (done.length) return { ok: true, already: true };
   }
   await d.update('rooms', `id=${d.eq(roomId)}`, { bots_on: true });

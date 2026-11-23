@@ -18,8 +18,11 @@ function withDecisionLog(sections) {
   return [...sections, { ...decisionLog, num: sections.length + 1 }];
 }
 
+/* "Spec template" in Add issue: generic headings, independent of the built-in default document */
+const TEMPLATE_TITLES = ['Background', 'Goals', 'Core features', 'User flow'];
+
 function draftSections(start, goal) {
-  const titles = start === 'template' ? SECTIONS.slice(0, 4).map((section) => section.title) : ['Document'];
+  const titles = start === 'template' ? TEMPLATE_TITLES : ['Document'];
   const goalIndex = start === 'template' ? 1 : 0;
   return withDecisionLog(titles.map((title, i) => ({
     id: `import-${i + 1}`, num: i + 1, title, paras: goal && i === goalIndex ? [goal] : [],
