@@ -81,4 +81,10 @@ export async function setAgentSection(roomId, lock, byId, byName, sectionId, d =
 }
 
 export const hasHangul = (s) => /[ᄀ-ᇿ㄰-㆏가-힯]/.test(String(s || ''));
+/* The language a document is written in: Korean when at least 30% of the letters in its body are Hangul. Edits keep it. */
+export function docLang(sections) {
+  const text = (sections || []).filter((s) => s.id !== 's8').map((s) => [s.title, ...(s.paras || [])].join(' ')).join(' ');
+  const ko = (text.match(/[가-힯]/g) || []).length; const en = (text.match(/[A-Za-z]/g) || []).length;
+  return ko && ko / (ko + en) >= 0.3 ? 'ko' : 'en';
+}
 export const L = (lang, en, ko) => (lang === 'ko' ? ko : en);

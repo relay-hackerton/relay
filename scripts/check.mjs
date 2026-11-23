@@ -14,8 +14,8 @@ const { runDiscuss } = await import('../api/_discuss.js');
 const { runProfile } = await import('../api/_profile.js');
 
 const { SECTIONS, HISTORY } = await import('../api/_seed.js');
-const AUTO = 'Timeout: 15 seconds, with one retry if there is no response';   // the teammate bot's change to section 4
-const MANUAL = 'Timeout: 5 seconds';                                          // my request: back to 5 seconds
+const AUTO = '타임아웃: 15초, 응답이 없으면 한 번 재시도';   // the teammate bot's change to section 4 (the document is Korean, so edits stay Korean)
+const MANUAL = '타임아웃: 5초';                              // my request: back to 5 seconds
 let calls = 0; const scripted = [];
 const fakeClaude = async (req) => { calls++; const next = scripted.shift(); assert.ok(next, 'unexpected Claude call'); return typeof next === 'function' ? next(req) : next; };
 const deps = { db, callClaude: fakeClaude, retryMs: 1 };
@@ -28,7 +28,7 @@ assert.equal(T.sections.length, SECTIONS.length); assert.equal(T.changes.length,
 // 2. teammate bot: Jieun → auto-invite
 scripted.push((req) => {
   assert.match(req.system, /Requester: Jieun/); assert.equal(req.messages.at(-1).role, 'user');
-  return { reply: 'Raised the timeout in 4.', action: 'edit', sectionId: 's4', paras: [AUTO, 'Retry: once', 'Duplicate payment prevention: a request with the same order number is approved only once.'], summary: 'Timeout → 15 s + one retry', why: 'Overseas cards take 7 s to approve', conflict: null, discussion: null };
+  return { reply: 'Raised the timeout in 4.', action: 'edit', sectionId: 's4', paras: [AUTO, '재시도: 한 번', '중복 결제 방지: 같은 주문 번호로 온 요청은 한 번만 승인한다.'], summary: 'Timeout → 15 s + one retry', why: 'Overseas cards take 7 s to approve', conflict: null, discussion: null };
 });
 let r = await runBot({ roomId, lang: 'en' }, deps);
 assert.equal(r.ok, true, JSON.stringify(r));
@@ -43,12 +43,12 @@ T.rooms[0].agent = { state: 'idle' };
 
 // 4. my request: Korean paras rejected and retried; conflict found by the rule; discussion drafted in a 2nd call; bots vote A and B
 T.messages.push({ id: 'm1', room_id: roomId, user_id: 'u_me', user_name: 'Judge', role: 'user', text: 'Set the timeout in section 4 back to 5 seconds.', meta: {}, created_at: new Date().toISOString() });
-scripted.push(() => { const p = s3().paras; return { reply: 'ok', action: 'edit', sectionId: 's4', paras: ['타임아웃: 5초', p[1], p[2]], summary: 'x', why: 'y', conflict: null, discussion: null }; });
+scripted.push(() => { const p = s3().paras; return { reply: 'ok', action: 'edit', sectionId: 's9', paras: [MANUAL, p[1], p[2]], summary: 'x', why: 'y', conflict: null, discussion: null }; });
 scripted.push((req) => { assert.match(req.system, /REJECTED/); const p = s3().paras; return { reply: 'Set the timeout in 4 back to 5 seconds.', action: 'edit', sectionId: 's4', paras: [MANUAL, p[1], p[2]], summary: 'Team invite → manual', why: 'Permission screen feels heavy', conflict: null, discussion: null }; });
-scripted.push({ note: 'Jieun changed this to auto-invite a few minutes ago because 41% drop at the invite step.', discussion: { title: 'Team invite: automatic or manual?', titleEn: 'Team invite: automatic or manual?', question: 'Q', options: [
-  { label: 'Keep auto-invite', labelEn: 'Keep auto-invite', desc: 'd', text: AUTO },
-  { label: 'Switch to manual', labelEn: 'Switch to manual', desc: 'd', text: MANUAL },
-  { label: 'Manual + suggestions', labelEn: 'Manual + suggestions', desc: 'd', text: 'Team invite: direct invite by email or link by default; same-domain members appear as suggestions when contacts permission is granted.' }] } });
+scripted.push({ note: 'Jieun raised this to 15 seconds a few minutes ago because overseas cards take 7 seconds.', discussion: { title: '결제 타임아웃, 몇 초로 할까', titleEn: 'Payment timeout: how many seconds?', question: 'Q', options: [
+  { label: '15초 + 재시도', labelEn: '15 s + retry', desc: 'd', text: AUTO },
+  { label: '5초로 되돌리기', labelEn: 'Back to 5 s', desc: 'd', text: MANUAL },
+  { label: '국내 5초 · 해외 15초', labelEn: 'Domestic 5 s · overseas 15 s', desc: 'd', text: '타임아웃: 국내 카드 5초, 해외 카드 15초' }] } });
 r = await runAgent({ roomId, userId: 'u_me', userName: 'Judge', text: 'Set the timeout in section 4 back to 5 seconds.', lang: 'en' }, deps);
 assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.conflict, true); assert.equal(s3().paras[0], MANUAL);
 const disc = T.discussions[0]; assert.equal(disc.para_index, 0); assert.equal(disc.n, 1);
@@ -68,7 +68,7 @@ r = await runResolve({ roomId, discussionId: disc.id, userId: 'u_me', userName: 
 assert.equal(r.result, 'B'); assert.equal(s3().paras[0], MANUAL);
 const s8 = T.sections.find((s) => s.id === 's8');
 assert.equal(s8.paras.length, 1);
-assert.match(s8.paras[0], /^Discussion #1 · Team invite: automatic or manual\?: concluded as option B Switch to manual \(2 votes, \d\d:\d\d\)\. Applied to 4\. 타임아웃과 재시도\.$/);
+assert.match(s8.paras[0], /^토론 #1 · 결제 타임아웃, 몇 초로 할까: B안 5초로 되돌리기\(으\)로 결론 \(2표, \d\d:\d\d\)\. 4\. 타임아웃과 재시도에 반영\.$/);   // written in the document's language
 assert.equal(T.discussions[0].status, 'resolved'); assert.equal(T.rooms[0].agent.state, 'idle');
 
 // 7. direct edits: frozen while a discussion is open elsewhere is fine, stale rev refused, change logged as human
@@ -90,7 +90,7 @@ assert.equal((await runDiscuss({ roomId, userId: 'u_me', sectionId: 's6', title:
 const s6 = () => T.sections.find((x) => x.id === 's6');
 scripted.push((req) => { assert.match(req.messages[0].content, /option A: 5% first/); return { reply: 'ok', action: 'edit', sectionId: 's6', paras: ['Design locked week 2 of Nov · build weeks 3–4 of Nov · 5% rollout week 1 of Dec · metrics review week 2 of Dec'], summary: 's', why: 'w', conflict: null, discussion: null }; });
 r = await runResolve({ roomId, discussionId: T.discussions[1].id, optionId: 'A', userId: 'u_me', userName: 'Judge', lang: 'en' }, deps);
-assert.equal(r.result, 'A'); assert.match(s6().paras[0], /5% rollout/); assert.match(T.sections.find((x) => x.id === 's8').paras.at(-1), /Discussion #2 · Rollout size\?: concluded as option A 5% first/);
+assert.equal(r.result, 'A'); assert.match(s6().paras[0], /5% rollout/); assert.match(T.sections.find((x) => x.id === 's8').paras.at(-1), /토론 #2 · Rollout size\?: A안 5% first\(으\)로 결론/);
 
 // 8. call limit
 T.rooms[0].calls = 30;
@@ -145,6 +145,10 @@ assert.match(emma.avatar, /^p:(me|w1|w2|w3)$/);
 assert.equal((await runProfile({ userId: john.userId }, deps)).avatar, john.avatar);
 
 // 9. helpers
+// edits keep the document's language: Hangul is refused in an English document and accepted in a Korean one
+const enDoc = [{ id: 's1', title: 'Background', paras: ['Payment wait drop-off: 18%'] }], koDoc = [{ id: 's1', title: '배경', paras: ['결제 대기 중 이탈률: 18%'] }];
+assert.match(validate({ action: 'edit', reply: 'x', sectionId: 's1', paras: ['이탈률 18%'] }, enDoc), /English/);
+assert.equal(validate({ action: 'edit', reply: 'x', sectionId: 's1', paras: ['이탈률 18%'] }, koDoc), null);
 assert.ok(validate({ action: 'edit', reply: 'x', sectionId: 's9', paras: ['a'] }, T.sections).startsWith('sectionId'));
 assert.equal(findContested({ sec: { id: 's1', paras: ['a', 'b'] }, paras: ['a', 'c'], recent: [], userId: 'u' }), null);
 assert.equal(scripted.length, 0);

@@ -1,5 +1,5 @@
 /* The agent pipeline shared by /api/agent and /api/bot: lock → read → Claude → validate → write → unlock. */
-import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, hasHangul, L, LIMIT, MAX_TEXT } from './_lib.js';
+import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, hasHangul, docLang, L, LIMIT, MAX_TEXT } from './_lib.js';
 import { RESPOND_TOOL, DRAFT_TOOL, systemPrompt, draftPrompt, toTurns, callClaude as realClaude } from './_prompt.js';
 import { BOTS } from './_seed.js';
 import { pickModel } from './_models.js';
@@ -13,6 +13,7 @@ const newIdx = (prev, next) => next.map((p, i) => (prev.includes(p) ? -1 : i)).f
 const sameList = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 export function validate(out, sections) {
+  const english = docLang(sections) === 'en';   // paragraphs keep the document's language; only an English document refuses Hangul
   if (!out || typeof out !== 'object') return 'no output';
   if (!['edit', 'clarify', 'none', 'discuss'].includes(out.action)) return 'action must be "edit", "clarify", "none" or "discuss"';
   if (typeof out.reply !== 'string' || !out.reply.trim()) return '"reply" is empty';
@@ -20,7 +21,7 @@ export function validate(out, sections) {
     const o = out.discussion && out.discussion.options;
     if (!o || !Array.isArray(o) || o.length < 2 || !out.discussion.title) return 'discuss needs a discussion with a title and at least 2 options';
     if (out.sectionId && !sections.some((s) => s.id === out.sectionId)) return `sectionId "${out.sectionId}" does not exist`;
-    if (o.some((x) => x && x.text && hasHangul(x.text))) return 'discussion option "text" must be English';
+    if (english && o.some((x) => x && x.text && hasHangul(x.text))) return 'discussion option "text" must be in English, the document\'s language';
     return null;
   }
   if (out.action !== 'edit') return null;
@@ -28,11 +29,11 @@ export function validate(out, sections) {
   if (!sec) return `sectionId "${out.sectionId}" does not exist; use one of ${sections.map((s) => s.id).join(', ')}`;
   if (!Array.isArray(out.paras) || !out.paras.length || out.paras.some((p) => typeof p !== 'string' || !p.trim())) return '"paras" must be a non-empty list of non-empty strings';
   if (out.paras.length > sec.paras.length + 3) return `"paras" grew from ${sec.paras.length} to ${out.paras.length}; add at most 3 paragraphs`;
-  if (out.paras.some(hasHangul)) return '"paras" must be English only; translate the paragraphs to English';
+  if (english && out.paras.some(hasHangul)) return '"paras" must be in English, the document\'s language; translate the paragraphs to English';
   if (out.discussion) {
     const o = out.discussion.options;
     if (!Array.isArray(o) || o.length !== 3) return 'discussion needs exactly 3 options';
-    if (o.some((x) => !x || !x.text || hasHangul(x.text) || hasHangul(x.labelEn))) return 'discussion option "text" and "labelEn" must be English';
+    if (o.some((x) => !x || !x.text || (english && hasHangul(x.text)) || hasHangul(x.labelEn))) return 'discussion option "text" must be in the document\'s language and "labelEn" in English';
     if (hasHangul(out.discussion.titleEn)) return '"titleEn" must be English';
   }
   return null;
@@ -176,7 +177,7 @@ export async function runAgent(input, deps = {}) {
               system: draftPrompt({ sections: ctx.sections, theirs: contested.change, mine: { summary, why }, contested: { theirs: contested.theirs || (contested.change.next || []).join(' / '), mine: contested.mine || out.paras[contested.paraIndex] }, userName, lang }),
               messages: [{ role: 'user', content: 'Draft the discussion.' }], tool: DRAFT_TOOL, model, timeoutMs: Math.max(6000, DEADLINE_MS - (Date.now() - started) - 4000),
             });
-            if (draft && draft.discussion && Array.isArray(draft.discussion.options) && draft.discussion.options.length === 3 && !draft.discussion.options.some((o) => hasHangul(o.text))) { discussion = draft.discussion; note = note || draft.note; }
+            if (draft && draft.discussion && Array.isArray(draft.discussion.options) && draft.discussion.options.length === 3 && !(docLang(ctx.sections) === 'en' && draft.discussion.options.some((o) => hasHangul(o.text)))) { discussion = draft.discussion; note = note || draft.note; }
           } catch (e) { console.error('draft failed', e); }
         }
         const ch = contested.change;

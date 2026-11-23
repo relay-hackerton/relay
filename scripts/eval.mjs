@@ -12,7 +12,7 @@ const { createRoom } = await import('../api/room.js');
 const { runAgent } = await import('../api/_agent.js');
 const { runBot } = await import('../api/bot.js');
 const { PROVIDER, MODEL, callClaude } = await import('../api/_prompt.js');
-const { hasHangul } = await import('../api/_lib.js');
+const { hasHangul, docLang } = await import('../api/_lib.js');
 
 const CASES = [
   { lang: 'en', text: 'What changed in the last 30 minutes?', expect: { action: 'none' } },
@@ -45,12 +45,12 @@ for (const c of CASES) {
   const reply = T.messages.filter((m) => m.role === 'agent').at(-1);
   const ch = T.changes.at(-1); const edited = r.action === 'edit';
   const sec = edited ? ch.section_id : '-';
-  const english = edited ? !ch.next.some(hasHangul) : true;
+  const english = edited ? ch.next.some(hasHangul) === (docLang(T.sections) === 'ko') : true;   // edits keep the document's language
   const disc = T.discussions.at(-1);
   const ok = (r.action === c.expect.action || (c.expect.action === 'none' && r.action === 'clarify'))
     && (!c.expect.section || sec === c.expect.section) && english && (!c.expect.conflict || !!r.conflict)
     && (!c.expect.contains || (edited && c.expect.contains.test(ch.next.join(' '))));
-  rows.push({ ok: ok ? '✅' : '❌', lang: c.lang, request: c.text.slice(0, 48), s: (took / 1000).toFixed(1), calls, action: r.action || r.error || (r.body && r.body.error), section: sec, english: english ? 'yes' : 'NO', conflict: r.conflict ? `yes · ${disc ? disc.options.map((o) => o.label).join(' / ') : 'no discussion'}` : '-', reply: (reply ? reply.text : '').slice(0, 90) });
+  rows.push({ ok: ok ? '✅' : '❌', lang: c.lang, request: c.text.slice(0, 48), s: (took / 1000).toFixed(1), calls, action: r.action || r.error || (r.body && r.body.error), section: sec, docLang: english ? 'kept' : 'NO', conflict: r.conflict ? `yes · ${disc ? disc.options.map((o) => o.label).join(' / ') : 'no discussion'}` : '-', reply: (reply ? reply.text : '').slice(0, 90) });
   console.log(`${rows.at(-1).ok} ${c.lang} ${(took / 1000).toFixed(1)}s ${rows.at(-1).action} ${sec} | ${rows.at(-1).reply}`);
 }
 console.table(rows.map(({ reply, ...x }) => x));

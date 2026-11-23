@@ -1,5 +1,5 @@
 /* Discussion conclusion: apply the winning option to the section and the decision log. No Claude call. */
-import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, L } from './_lib.js';
+import { db as realDb, acquire, release, setAgentSection, newId, uuid, hhmm, docLang, L } from './_lib.js';
 import { NO_DECISION_PREFIX } from './_seed.js';
 import { RESPOND_TOOL, systemPrompt, callClaude as realClaude } from './_prompt.js';
 import { validate } from './_agent.js';
@@ -72,8 +72,10 @@ export async function runResolve(input, deps = {}) {
         prev: main.prev, next: main.next }]);
     }
     await setAgentSection(roomId, lock, 'agent', 'Agent', 's8', d);
-    const target = main ? ` Applied to ${secLabel(main.sec)}.` : '';
-    const record = `Discussion #${disc.n} · ${disc.title_en || disc.title}: concluded as option ${pick.id} ${pick.label_en || pick.label} (${count(pick.id)} votes, ${hhmm(at)}).${target}`;
+    const docSections = await d.select('sections', `room_id=${d.eq(roomId)}&select=id,title,paras`);
+    const record = docLang(docSections) === 'ko'   // the decision log is written in the document's language
+      ? `토론 #${disc.n} · ${disc.title}: ${pick.id}안 ${pick.label}(으)로 결론 (${count(pick.id)}표, ${hhmm(at)}).${main ? ` ${secLabel(main.sec)}에 반영.` : ''}`
+      : `Discussion #${disc.n} · ${disc.title_en || disc.title}: concluded as option ${pick.id} ${pick.label_en || pick.label} (${count(pick.id)} votes, ${hhmm(at)}).${main ? ` Applied to ${secLabel(main.sec)}.` : ''}`;
     const log = await writeSection(d, roomId, 's8', (sec) => [...sec.paras.filter((p) => !p.startsWith(NO_DECISION_PREFIX)), record]);
     await d.insert('changes', [{ id: log.changeId, room_id: roomId, section_id: 's8', kind: 'discussion', by_id: 'agent', by_name: 'Agent', discussion_id: disc.id,
       summary: L(lang, `Added discussion #${disc.n} result to the decision log`, `토론 #${disc.n} 결론을 결정 기록에 추가`),
