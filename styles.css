@@ -911,3 +911,8 @@ body.entering :is(.msg, .ent, .cmt, .sysnote, .compose, .pop) { animation: none 
 .import-warn { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 0; padding: 10px 12px; border-radius: 10px;
   background: #FFF6E5; border: 1px solid #F5D9A8; color: #7A4B00; font-size: 12.5px; line-height: 1.5; }
 .import-warn svg { flex: none; margin-top: 1px; color: #C27A00; }
+
+/* export menu items: not the round 26px icon buttons of the viewer bar they sit in (labels were wrapping and overlapping) */
+.viewer .export-menu { min-width: 0; width: max-content; }
+.viewer .export-menu button { display: block; width: 100%; height: auto; padding: 8px 12px; border-radius: var(--r-sm); text-align: left; white-space: nowrap; font-size: 13px; line-height: 1.4; color: var(--ink); }
+.viewer .export-menu button:hover { background: rgba(47,107,255,.07); color: var(--blue); }
