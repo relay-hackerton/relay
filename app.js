@@ -672,11 +672,12 @@
       <div id="importFileLabel" class="file-field" role="group" aria-labelledby="fileLabel" hidden>
         <span id="fileLabel" class="lbl-row">${t('import_file')}</span>
         <div class="file-input">
-          <button type="button" id="pickFile" data-pick-file aria-describedby="fileFormats">${t('choose_file')}</button>
+          <button type="button" id="pickFile" data-pick-file aria-describedby="fileFormats importWarn">${t('choose_file')}</button>
           <span id="fileName" aria-live="polite">${t('no_file')}</span>
           <input id="iFile" type="file" accept=".md,.txt,.docx,.pdf" hidden>
         </div>
-        <span id="fileFormats" class="hint">.md, .txt, .docx, .pdf · 10 MB</span>
+        <span id="fileFormats" class="hint">${t('import_hint')}</span>
+        <p id="importWarn" class="import-warn" role="note"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg><span>${t('import_warn')}</span></p>
       </div>
       <div class="f"><span class="err" id="iErr" role="alert"></span><span class="spacer"></span><button type="button" class="btn ghost" data-modal-close>${t('cancel')}</button><button type="submit" class="btn primary">${t('create')}</button></div>
     </form></div>`;
