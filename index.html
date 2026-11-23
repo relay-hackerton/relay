@@ -70,7 +70,7 @@
   (function () {
     var q = new URL(location.href).searchParams.get('lang');
     var saved = null; try { saved = localStorage.getItem('relay.lang'); } catch (e) {}
-    window.RELAY_LANG = (q || saved) === 'ko' ? 'ko' : 'en';
+    window.RELAY_LANG = (q || saved) === 'en' ? 'en' : 'ko';   // Korean unless English was chosen (?lang=en or the EN toggle)
   })();
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
